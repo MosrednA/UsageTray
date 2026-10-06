@@ -1,105 +1,130 @@
-# UsageTray
-
-**Je Codex- en Claude-limieten in één oogopslag, vanuit het Windows-systeemvak.**
-
-Een klein, native tray-programma (C# / WinForms, geen dependencies) dat laat zien hoeveel je van je abonnementslimieten hebt verbruikt — en vooral: **of je op schema ligt** om de reset te halen.
-
 <p align="center">
-  <img src="docs/flyout.png" alt="UsageTray flyout met Codex- en Claude-limieten" width="420">
+  <img src="docs/logo.png" alt="" width="96">
 </p>
 
----
+<h1 align="center">UsageTray</h1>
 
-## Zo lees je het
+<p align="center">
+  <b>Your Codex and Claude subscription limits at a glance — and whether you're on pace to make it to the reset.</b>
+</p>
 
-Elke regel is één rollend limietvenster:
+<p align="center">
+  <a href="https://github.com/MosrednA/UsageTray/releases/latest"><img src="https://img.shields.io/github/v/release/MosrednA/UsageTray?style=flat-square&color=4cc38a" alt="Latest release"></a>
+  <a href="https://github.com/MosrednA/UsageTray/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/MosrednA/UsageTray/ci.yml?style=flat-square&label=build" alt="Build"></a>
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-1c1d22?style=flat-square" alt="Windows 10 | 11">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-1c1d22?style=flat-square" alt="MIT license"></a>
+</p>
+
+<p align="center">
+  <img src="docs/flyout.png" alt="UsageTray flyout showing Codex and Claude limits" width="440">
+</p>
+
+A tiny native Windows tray app. One glance at the icon tells you if you're burning through a limit; one click shows every window with a pace marker, so you know whether to slow down — or that you've got room to spare.
+
+- **Pace, not just percentage.** A white tick marks where you'd be with perfectly even usage. Past the tick means you're going too fast.
+- **Codex + Claude in one place.** Weekly and 5-hour windows, model-specific Claude limits, Codex credits.
+- **Zero setup for Codex.** Reads the logs Codex already writes. No keys, no login.
+- **Lightweight.** Native WinForms, no dependencies, no telemetry. Refreshes every 2 minutes.
+
+## Install
+
+Download **[UsageTray-win-x64.exe](https://github.com/MosrednA/UsageTray/releases/latest/download/UsageTray-win-x64.exe)** and run it. Nothing to install.
+
+> Prefer a ~250 KB download instead of ~50 MB? Grab `UsageTray-win-x64-small.exe` from the [release](https://github.com/MosrednA/UsageTray/releases/latest) instead — it needs the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0).
+
+Then:
+
+1. **Keep the icon visible** — drag it from the `^` overflow onto the taskbar (or *Taskbar settings → Other system tray icons → UsageTray*).
+2. **Start with Windows** — right-click the icon and tick it.
+3. **Claude** — if you see *sign-in expired*, click it (or right-click → *Sign in to Claude…*). This runs the official `claude auth login`.
+
+## Reading it
 
 ```
-7d   ███████████████▏░░░░░░░░   60%   +7   3d 7h
-│    │              │           │     │    └─ tijd tot reset
-│    │              │           │     └────── verschil met pace (procentpunten)
-│    │              │           └──────────── verbruikt
-│    │              └──────────────────────── pace: waar je bij gelijkmatig verbruik zou zitten
-│    └─────────────────────────────────────── verbruik
-└──────────────────────────────────────────── venster (5h, 7d, opus, sonnet)
+7d   ███████████████▏░░░░░░░░   64%   +11   3d 6h
+│    │              │           │     │     └─ time until reset
+│    │              │           │     └─────── points ahead of (+) or behind (−) even pace
+│    │              │           └───────────── used
+│    │              └───────────────────────── pace: where even usage would put you now
+│    └──────────────────────────────────────── usage
+└───────────────────────────────────────────── window: 5h, 7d, opus, sonnet
 ```
 
-**Voorbij de witte streep = je gaat te hard.** `+7` betekent 7 procentpunten meer verbruikt dan gelijkmatig verdeeld; `−8` betekent ruimte over.
+<img src="docs/tray-icons.png" alt="Tray icon states" width="176" align="right">
 
-| Kleur | Betekenis |
+| | |
 |---|---|
-| 🟢 Groen | Op of onder pace |
-| 🟠 Oranje | Sneller dan pace |
-| 🔴 Rood | ≥ 90% verbruikt, of > 15 punten voor op pace |
+| 🟢 **Green** | On or under pace |
+| 🟠 **Orange** | Faster than pace |
+| 🔴 **Red** | ≥ 90 % used, or > 15 points ahead of pace |
 
-Het **tray-icoon** toont het percentage (en de kleur) van het venster met het meeste risico. Hover voor een samenvatting van alles.
+The **tray icon** shows the percentage and color of whichever window is most at risk. Hover it for a one-line summary of everything.
 
-## Bediening
+> **Tip:** a 5-hour window only starts when you send your first message, so early on you'll almost always be "ahead of pace". For 5h, watch the percentage; for 7d, the pace is what matters.
 
-| Actie | Effect |
+| Action | |
 |---|---|
-| Klik op icoon | Flyout openen / sluiten |
-| Rechtsklik | Vernieuwen · Start met Windows · Afsluiten |
-| `F5` / `R` of klik op footer | Direct verversen |
-| `Esc` / klik ernaast | Flyout sluiten |
+| Click the icon | Open / close the flyout |
+| Right-click | Refresh · Sign in to Claude · Start with Windows · Quit |
+| `F5` / `R`, or click the footer | Refresh now |
+| `Esc`, or click elsewhere | Close |
 
-Data ververst automatisch elke 2 minuten, en bij het openen van de flyout als die ouder is dan 30 seconden.
+The UI is in English, or Dutch when Windows is set to Dutch. Force a language with `USAGETRAY_LANG=en` or `nl`.
 
-## Installatie
+## Where the numbers come from
 
-Vereist de [.NET 10 SDK](https://dotnet.microsoft.com/download).
+| | Source | Notes |
+|---|---|---|
+| **Codex** | Latest `token_count` event in `~/.codex/sessions/**/*.jsonl` | Local and read-only. Codex only logs limits while you use it, so older snapshots are labeled *as of 14:50*. If the window has reset since, it shows 0 %. |
+| **Claude** | `api.anthropic.com/api/oauth/usage`, using the Claude Code CLI login in `~/.claude/.credentials.json` | Same data as `/usage` in Claude Code. Expired access tokens are refreshed and written back atomically, so the CLI keeps working. |
+
+A provider that isn't installed is simply hidden.
+
+### Privacy & security
+
+- **Reads** your Codex session logs and the Claude Code credentials file.
+- **Writes** only refreshed Claude tokens back to that same credentials file, plus the optional autostart entry (`HKCU\…\Run`).
+- **Talks to** `platform.claude.com` (token refresh) and `api.anthropic.com` (usage). Nothing else. No telemetry, no analytics.
+
+## Build from source
+
+Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download).
 
 ```bash
 git clone https://github.com/MosrednA/UsageTray.git
 cd UsageTray
-dotnet publish -c Release -o publish
+dotnet run -c Release
 ```
 
-Start `publish\UsageTray.exe`, en vink via rechtsklik **Start met Windows** aan.
-
-**Icoon altijd zichtbaar maken:** sleep het vanuit het `^`-overloopmenu naar de taakbalk, of zet het aan via *Taakbalkinstellingen → Andere systeemvakpictogrammen → UsageTray*.
-
-## Databronnen
-
-### Codex — lokaal, geen login
-
-Codex schrijft bij elke turn een `token_count`-event met de actuele rate limits in zijn sessielogs (`~/.codex/sessions/YYYY/MM/DD/*.jsonl`). UsageTray leest het nieuwste event uit de recentste sessies (alleen de staart van elk bestand, met cache per bestand).
-
-- Toont plan, venster(s), resettijd en creditsaldo.
-- Wordt alleen bijgewerkt wanneer je Codex gebruikt; oudere snapshots krijgen een label als `5h 06m oud`.
-- Is het venster sindsdien gereset, dan toont hij 0%.
-
-### Claude — via de Claude Code CLI-login
-
-Gebruikt dezelfde OAuth-credentials (`~/.claude/.credentials.json`) en hetzelfde endpoint als `/usage` in Claude Code (`api.anthropic.com/api/oauth/usage`).
-
-- Toont het 5-uurs- en weekvenster, plus model-specifieke weekvensters (Opus/Sonnet) zodra die verbruik hebben.
-- Verlopen access tokens worden ververst en (atomisch) teruggeschreven, zodat de CLI gewoon blijft werken.
-- Ziet de flyout `login verlopen`? Draai eenmalig:
-
-  ```bash
-  claude auth login
-  ```
-
-> ⚠️ Het Claude-endpoint is **niet officieel gedocumenteerd** en kan zonder aankondiging veranderen. De Claude-desktopapp gebruikt zijn eigen login; daar kan UsageTray niet bij — vandaar de CLI-login.
-
-## Projectstructuur
-
-| Bestand | Rol |
+| | |
 |---|---|
-| `Program.cs` | Entry point, single-instance, `--snapshot` |
-| `TrayApp.cs` | Tray-icoon, menu, refresh-timer, autostart |
-| `PopupForm.cs` | De flyout (custom getekend, DPI-aware) |
-| `IconRenderer.cs` | Dynamisch tray-icoon |
-| `CodexSource.cs` | Codex-sessielogs uitlezen |
-| `ClaudeSource.cs` | OAuth-token + usage-endpoint |
-| `Models.cs` | Vensters, pace-berekening, formattering |
-| `Theme.cs` | Kleuren en vormen |
+| `UsageTray --snapshot out.png` | Render the flyout with your live data to a PNG |
+| `UsageTray --render-assets` | Regenerate `docs/*.png` and `assets/app.ico` from demo data |
 
-### Layout tweaken
+Tag a commit `v*` to build and publish a release automatically.
 
-```bash
-dotnet run -c Release -- --snapshot out.png
-```
+<details>
+<summary>Project layout</summary>
 
-Rendert de flyout met live data naar een PNG en sluit af — handig om de layout te checken zonder het systeemvak te gebruiken.
+| File | Role |
+|---|---|
+| `TrayApp.cs` | Tray icon, menu, refresh timer, Claude sign-in, autostart |
+| `PopupForm.cs` | The flyout — custom-drawn, DPI-aware |
+| `CodexSource.cs` | Codex session-log reader |
+| `ClaudeSource.cs` | OAuth token refresh + usage endpoint |
+| `Models.cs` | Usage windows, pace math, formatting |
+| `IconRenderer.cs` | Tray icon and logo |
+| `DocAssets.cs` | README images and `.ico` generator |
+| `L.cs` | English / Dutch strings |
+
+</details>
+
+## Caveats
+
+- The Claude usage endpoint is **undocumented** and may change without notice. If Claude stops showing up after an update, that's the likely cause.
+- UsageTray reuses the Claude Code CLI login rather than logging in itself. The Claude desktop app keeps its own login, which UsageTray can't access.
+- UsageTray is an independent project and is **not affiliated with or endorsed by OpenAI or Anthropic**. Codex and Claude are trademarks of their respective owners.
+
+## License
+
+[MIT](LICENSE)

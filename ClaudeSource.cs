@@ -16,8 +16,6 @@ static class ClaudeSource
     const string ClientId = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
     const string TokenUrl = "https://platform.claude.com/v1/oauth/token";
     const string UsageUrl = "https://api.anthropic.com/api/oauth/usage";
-    const string LoginHint = "claude auth login";
-
     static readonly string CredPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", ".credentials.json");
 
@@ -31,20 +29,24 @@ static class ClaudeSource
         ("seven_day_sonnet", "sonnet", TimeSpan.FromDays(7), false),
     ];
 
-    public static async Task<ProviderStatus> ReadAsync()
+    /// <returns>null when Claude Code isn't installed.</returns>
+    public static async Task<ProviderStatus?> ReadAsync()
     {
+        if (!Directory.Exists(Path.GetDirectoryName(CredPath))) return null;
         string? plan = null;
         try
         {
-            if (!File.Exists(CredPath)) return Fail($"niet ingelogd → {LoginHint}");
-            if (JsonNode.Parse(await File.ReadAllTextAsync(CredPath)) is not JsonObject doc
+            if (!File.Exists(CredPath)
+                || JsonNode.Parse(await File.ReadAllTextAsync(CredPath)) is not JsonObject doc
                 || doc["claudeAiOauth"] is not JsonObject oauth)
-                return Fail($"niet ingelogd → {LoginHint}");
+                return LoginNeeded(L.T("not signed in · click to sign in", "niet ingelogd · klik om in te loggen"));
 
             plan = oauth["subscriptionType"]?.ToString();
             var usage = await FetchUsageAsync(doc, oauth, forceRefresh: false)
                      ?? await FetchUsageAsync(doc, oauth, forceRefresh: true);
-            return usage is null ? Fail($"login verlopen → {LoginHint}", plan) : Build(usage, plan);
+            return usage is null
+                ? LoginNeeded(L.T("sign-in expired · click to sign in", "login verlopen · klik om in te loggen"), plan)
+                : Build(usage, plan);
         }
         catch (Exception ex)
         {
@@ -53,6 +55,9 @@ static class ClaudeSource
     }
 
     static ProviderStatus Fail(string error, string? plan = null) => new("Claude", [], plan, Error: error);
+
+    static ProviderStatus LoginNeeded(string error, string? plan = null) =>
+        new("Claude", [], plan, Error: error, NeedsLogin: true);
 
     static async Task<JsonObject?> FetchUsageAsync(JsonObject doc, JsonObject oauth, bool forceRefresh)
     {

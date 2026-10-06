@@ -30,7 +30,8 @@ sealed record ProviderStatus(
     IReadOnlyList<UsageWindow> Windows,
     string? Plan = null,
     string? Note = null,
-    string? Error = null);
+    string? Error = null,
+    bool NeedsLogin = false);
 
 static class Fmt
 {
@@ -40,6 +41,12 @@ static class Fmt
         if (t.TotalHours < 1) return $"{(int)t.TotalMinutes}m";
         if (t.TotalDays < 1) return $"{(int)t.TotalHours}h {t.Minutes:00}m";
         return $"{(int)t.TotalDays}d {t.Hours}h";
+    }
+
+    public static string AsOf(DateTimeOffset at)
+    {
+        var local = at.ToLocalTime();
+        return local.Date == DateTime.Today ? $"{local:HH:mm}" : $"{local:d MMM HH:mm}";
     }
 
     public static string Delta(double? d) => d switch

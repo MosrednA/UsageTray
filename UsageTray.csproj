@@ -7,8 +7,17 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>assets\app.ico</ApplicationIcon>
     <RootNamespace>UsageTray</RootNamespace>
     <AssemblyName>UsageTray</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+    <Product>UsageTray</Product>
+    <Description>Codex and Claude subscription limits with pace tracking, in the Windows system tray.</Description>
+    <Authors>MosrednA</Authors>
+    <Copyright>© 2026 MosrednA</Copyright>
   </PropertyGroup>
 
 </Project>

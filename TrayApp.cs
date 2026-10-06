@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Win32;
 
 namespace UsageTray;
@@ -10,30 +11,36 @@ sealed class TrayApp : ApplicationContext
     readonly NotifyIcon _tray = new();
     readonly System.Windows.Forms.Timer _timer = new() { Interval = (int)RefreshEvery.TotalMilliseconds };
     IReadOnlyList<ProviderStatus> _data = [];
-    DateTimeOffset _updated;
+    DateTimeOffset? _updated;
     bool _busy;
 
     public TrayApp()
     {
-        var autostart = new ToolStripMenuItem("Start met Windows") { Checked = Autostart.Enabled, CheckOnClick = true };
+        var autostart = new ToolStripMenuItem(L.T("Start with Windows", "Start met Windows"))
+        {
+            Checked = Autostart.Enabled,
+            CheckOnClick = true,
+        };
         autostart.CheckedChanged += (_, _) => Autostart.Enabled = autostart.Checked;
 
         _tray.ContextMenuStrip = new ContextMenuStrip
         {
             Items =
             {
-                new ToolStripMenuItem("Vernieuwen", null, (_, _) => _ = RefreshAsync()),
+                new ToolStripMenuItem(L.T("Refresh", "Vernieuwen"), null, (_, _) => _ = RefreshAsync()),
+                new ToolStripMenuItem(L.T("Sign in to Claude…", "Inloggen bij Claude…"), null, (_, _) => _ = ClaudeLoginAsync()),
                 autostart,
                 new ToolStripSeparator(),
-                new ToolStripMenuItem("Afsluiten", null, (_, _) => ExitThread()),
+                new ToolStripMenuItem(L.T("Quit", "Afsluiten"), null, (_, _) => ExitThread()),
             },
         };
         _tray.Icon = IconRenderer.Render(null);
-        _tray.Text = "UsageTray — laden…";
+        _tray.Text = "UsageTray";
         _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) TogglePopup(); };
         _tray.Visible = true;
 
         _popup.RefreshRequested += () => _ = RefreshAsync();
+        _popup.LoginRequested += () => _ = ClaudeLoginAsync();
         _timer.Tick += (_, _) => _ = RefreshAsync();
         _timer.Start();
         _ = RefreshAsync();
@@ -47,7 +54,7 @@ sealed class TrayApp : ApplicationContext
 
         _popup.SetData(_data, _updated);
         _popup.ShowNearTray();
-        if (DateTimeOffset.Now - _updated > TimeSpan.FromSeconds(30)) _ = RefreshAsync();
+        if (_updated is null || DateTimeOffset.Now - _updated > TimeSpan.FromSeconds(30)) _ = RefreshAsync();
     }
 
     async Task RefreshAsync()
@@ -58,7 +65,7 @@ sealed class TrayApp : ApplicationContext
         {
             var codex = Task.Run(CodexSource.Read);
             var claude = Task.Run(ClaudeSource.ReadAsync);
-            _data = [await codex, await claude];
+            _data = new[] { await codex, await claude }.OfType<ProviderStatus>().ToList();
             _updated = DateTimeOffset.Now;
             UpdateTray();
             _popup.SetData(_data, _updated);
@@ -67,6 +74,24 @@ sealed class TrayApp : ApplicationContext
         {
             _busy = false;
         }
+    }
+
+    /// <summary>Runs the official Claude Code login in a console window, then refreshes.</summary>
+    async Task ClaudeLoginAsync()
+    {
+        try
+        {
+            using var login = Process.Start(new ProcessStartInfo("cmd.exe", "/c title Claude sign-in & claude auth login || pause")
+            {
+                UseShellExecute = true,
+            });
+            if (login is not null) await login.WaitForExitAsync();
+        }
+        catch (Exception ex)
+        {
+            _tray.ShowBalloonTip(5000, "UsageTray", ex.Message, ToolTipIcon.Error);
+        }
+        await RefreshAsync();
     }
 
     void UpdateTray()
@@ -83,6 +108,7 @@ sealed class TrayApp : ApplicationContext
         var tip = string.Join("\n", _data.Select(p => p.Error is not null
             ? $"{p.Name}: {p.Error}"
             : $"{p.Name}  " + string.Join("  ", p.Windows.Select(w => $"{w.Label} {w.UsedPct:0}% ({Fmt.Delta(w.Delta)})"))));
+        if (tip.Length == 0) tip = "UsageTray";
         _tray.Text = tip.Length > 127 ? tip[..127] : tip;
     }
 

@@ -15,10 +15,11 @@ sealed class PopupForm : Form
 
     IReadOnlyList<ProviderStatus> _data = [];
     DateTimeOffset? _updated;
-    Rectangle _footer;
+    Rectangle _footer, _login;
     readonly System.Windows.Forms.Timer _tick = new() { Interval = 30_000 };
 
     public event Action? RefreshRequested;
+    public event Action? LoginRequested;
     public DateTime LastHidden { get; private set; }
 
     public PopupForm()
@@ -52,7 +53,7 @@ sealed class PopupForm : Form
         DwmSetWindowAttribute(Handle, 33, ref round, sizeof(int));
     }
 
-    public void SetData(IReadOnlyList<ProviderStatus> data, DateTimeOffset updated)
+    public void SetData(IReadOnlyList<ProviderStatus> data, DateTimeOffset? updated)
     {
         _data = data;
         _updated = updated;
@@ -75,6 +76,7 @@ sealed class PopupForm : Form
         _tick.Start();
     }
 
+    /// <summary>Renders the flyout to a PNG without showing it (docs and layout checks).</summary>
     public void RenderTo(IReadOnlyList<ProviderStatus> data, string path)
     {
         _data = data;
@@ -100,9 +102,16 @@ sealed class PopupForm : Form
         base.OnKeyDown(e);
     }
 
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        Cursor = _login.Contains(e.Location) || _footer.Contains(e.Location) ? Cursors.Hand : Cursors.Default;
+        base.OnMouseMove(e);
+    }
+
     protected override void OnMouseClick(MouseEventArgs e)
     {
-        if (_footer.Contains(e.Location)) RefreshRequested?.Invoke();
+        if (_login.Contains(e.Location)) { Hide(); LoginRequested?.Invoke(); }
+        else if (_footer.Contains(e.Location)) RefreshRequested?.Invoke();
         base.OnMouseClick(e);
     }
 
@@ -134,10 +143,14 @@ sealed class PopupForm : Form
         using var monoBold = new Font("Consolas", Px(12), FontStyle.Bold, GraphicsUnit.Pixel);
 
         int left = Px(Pad), right = Width - Px(Pad), y = Px(Pad);
+        _login = Rectangle.Empty;
 
         if (_data.Count == 0)
         {
-            Label(g, "laden…", small, Theme.Muted, new Rectangle(left, y, right - left, Px(HeadH)));
+            var empty = _updated is null
+                ? L.T("loading…", "laden…")
+                : L.T("No Codex or Claude Code found", "Geen Codex of Claude Code gevonden");
+            Label(g, empty, small, Theme.Muted, new Rectangle(left, y, right - left, Px(HeadH)));
             y += Px(HeadH);
         }
 
@@ -148,8 +161,11 @@ sealed class PopupForm : Form
             var nameW = TextRenderer.MeasureText(g, p.Name, title, Size.Empty, TextFormatFlags.NoPadding).Width + Px(12);
             var meta = p.Error ?? Fmt.Join(p.Plan, p.Note);
             if (meta is not null)
-                Label(g, meta, small, p.Error is null ? Theme.Muted : Theme.Hot,
-                    Rectangle.FromLTRB(left + nameW, y, right, y + Px(HeadH)), right: true);
+            {
+                var metaBounds = Rectangle.FromLTRB(left + nameW, y, right, y + Px(HeadH));
+                Label(g, meta, small, p.Error is null ? Theme.Muted : Theme.Hot, metaBounds, right: true);
+                if (p.NeedsLogin) _login = metaBounds;
+            }
             y += Px(HeadH);
 
             foreach (var w in p.Windows)
@@ -165,10 +181,10 @@ sealed class PopupForm : Form
         using (var line = new Pen(Theme.Track, 1))
             g.DrawLine(line, left, y, right, y);
         _footer = new Rectangle(0, y, Width, Height - y);
-        var stamp = _updated is { } u ? $"{u:HH:mm} · klik = verversen" : "";
-        Label(g, stamp, small, Theme.Muted, Rectangle.FromLTRB(left, y, right, y + Px(FootH)));
-        Label(g, "▏pace   + sneller / − trager", small, Theme.Muted,
-            Rectangle.FromLTRB(left, y, right, y + Px(FootH)), right: true);
+        var footer = Rectangle.FromLTRB(left, y, right, y + Px(FootH));
+        if (_updated is { } u)
+            Label(g, $"{u:HH:mm} · " + L.T("click to refresh", "klik = verversen"), small, Theme.Muted, footer);
+        Label(g, L.T("▏pace   + faster / − slower", "▏pace   + sneller / − trager"), small, Theme.Muted, footer, right: true);
     }
 
     void DrawRow(Graphics g, UsageWindow w, Font mono, Font monoBold, int left, int right, int y)

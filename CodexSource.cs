@@ -19,8 +19,10 @@ static class CodexSource
 
     sealed record Snapshot(JsonObject Limits, DateTimeOffset At);
 
-    public static ProviderStatus Read()
+    /// <returns>null when Codex isn't installed.</returns>
+    public static ProviderStatus? Read()
     {
+        if (!Directory.Exists(Path.GetDirectoryName(SessionsDir))) return null;
         try
         {
             foreach (var file in RecentSessionFiles())
@@ -28,7 +30,7 @@ static class CodexSource
                 if (LatestSnapshot(file) is { } hit)
                     return Build(hit);
             }
-            return new("Codex", [], Error: "geen limietdata in recente sessies");
+            return new("Codex", [], Error: L.T("no limit data in recent sessions", "geen limietdata in recente sessies"));
         }
         catch (Exception ex)
         {
@@ -110,7 +112,7 @@ static class CodexSource
 
         // Codex only logs limits while you use it, so flag old snapshots.
         var age = DateTimeOffset.Now - s.At;
-        var stale = age > TimeSpan.FromMinutes(15) ? $"{Fmt.Span(age)} oud" : null;
+        var stale = age > TimeSpan.FromMinutes(15) ? L.T($"as of {Fmt.AsOf(s.At)}", $"stand {Fmt.AsOf(s.At)}") : null;
 
         return new("Codex", windows, s.Limits["plan_type"]?.ToString(), Fmt.Join(credits, stale));
     }
