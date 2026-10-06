@@ -29,10 +29,26 @@ static class ClaudeSource
         ("seven_day_sonnet", "sonnet", TimeSpan.FromDays(7), false),
     ];
 
+    // The usage endpoint is rate limited (Claude Code only calls it on demand), so poll gently,
+    // back off on 429 and keep showing the last good numbers in the meantime.
+    static readonly TimeSpan MinInterval = TimeSpan.FromMinutes(5);
+    static readonly TimeSpan MaxBackoff = TimeSpan.FromMinutes(30);
+    static ProviderStatus? _last;
+    static DateTimeOffset _lastAt, _nextAllowed;
+    static TimeSpan _backoff;
+
+    sealed class RateLimitedException(TimeSpan? retryAfter) : Exception("rate limited")
+    {
+        public TimeSpan? RetryAfter { get; } = retryAfter;
+    }
+
     /// <returns>null when Claude Code isn't installed.</returns>
     public static async Task<ProviderStatus?> ReadAsync()
     {
         if (!Directory.Exists(Path.GetDirectoryName(CredPath))) return null;
+        var now = DateTimeOffset.Now;
+        if (_last is not null && now < _nextAllowed) return Cached();
+
         string? plan = null;
         try
         {
@@ -44,14 +60,38 @@ static class ClaudeSource
             plan = oauth["subscriptionType"]?.ToString();
             var usage = await FetchUsageAsync(doc, oauth, forceRefresh: false)
                      ?? await FetchUsageAsync(doc, oauth, forceRefresh: true);
-            return usage is null
-                ? LoginNeeded(L.T("sign-in expired · click to sign in", "login verlopen · klik om in te loggen"), plan)
-                : Build(usage, plan);
+            if (usage is null)
+                return LoginNeeded(L.T("sign-in expired · click to sign in", "login verlopen · klik om in te loggen"), plan);
+
+            (_last, _lastAt, _backoff, _nextAllowed) = (Build(usage, plan), now, TimeSpan.Zero, now + MinInterval);
+            return _last;
+        }
+        catch (RateLimitedException ex)
+        {
+            _backoff = _backoff == TimeSpan.Zero ? MinInterval : TimeSpan.FromTicks(Math.Min(_backoff.Ticks * 2, MaxBackoff.Ticks));
+            if (ex.RetryAfter > _backoff) _backoff = ex.RetryAfter.Value;
+            _nextAllowed = now + _backoff;
+            return _last is not null
+                ? Cached()
+                : Fail(L.T($"rate limited · retrying at {_nextAllowed:HH:mm}", $"even geblokkeerd · opnieuw om {_nextAllowed:HH:mm}"), plan);
         }
         catch (Exception ex)
         {
             return Fail(ex.Message, plan);
         }
+    }
+
+    /// <summary>Last good result; windows that have reset since count as empty.</summary>
+    static ProviderStatus Cached()
+    {
+        var now = DateTimeOffset.Now;
+        var windows = _last!.Windows
+            .Select(w => w.ResetsAt <= now ? w with { UsedPct = 0, ResetsAt = null } : w)
+            .ToList();
+        var stale = now - _lastAt > MinInterval + TimeSpan.FromMinutes(1)
+            ? L.T($"as of {Fmt.AsOf(_lastAt)}", $"stand {Fmt.AsOf(_lastAt)}")
+            : null;
+        return _last with { Windows = windows, Note = Fmt.Join(_last.Note, stale) };
     }
 
     static ProviderStatus Fail(string error, string? plan = null) => new("Claude", [], plan, Error: error);
@@ -68,6 +108,7 @@ static class ClaudeSource
         req.Headers.Add("anthropic-beta", "oauth-2025-04-20");
         using var res = await Http.SendAsync(req);
         if (res.StatusCode == HttpStatusCode.Unauthorized) return null;
+        if (res.StatusCode == HttpStatusCode.TooManyRequests) throw new RateLimitedException(res.Headers.RetryAfter?.Delta);
         res.EnsureSuccessStatusCode();
         return JsonNode.Parse(await res.Content.ReadAsStringAsync()) as JsonObject;
     }

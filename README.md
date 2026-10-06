@@ -24,7 +24,7 @@ A tiny native Windows tray app. One glance at the icon tells you if you're burni
 - **Pace, not just percentage.** A white tick marks where you'd be with perfectly even usage. Past the tick means you're going too fast.
 - **Codex + Claude in one place.** Weekly and 5-hour windows, model-specific limits, Codex credits and free resets.
 - **No extra logins.** Uses the sign-ins of the official Codex and Claude Code CLIs. No API keys.
-- **Lightweight.** Native WinForms, no dependencies, no telemetry. Refreshes every 2 minutes.
+- **Lightweight.** Native WinForms, no dependencies, no telemetry. Refreshes every 2 minutes (Claude at most every 5).
 
 ## Install
 
@@ -88,7 +88,7 @@ The UI is in English, or Dutch when Windows is set to Dutch. Force a language wi
 | | Source | Notes |
 |---|---|---|
 | **Codex** | The official `codex app-server` (`account/rateLimits/read`), run locally | Live, using Codex's own login. Also shows credits and available free resets. If the CLI isn't on your `PATH`, it falls back to the last snapshot in `~/.codex/sessions` (labeled *as of 14:50*). |
-| **Claude** | `api.anthropic.com/api/oauth/usage`, using the Claude Code CLI login in `~/.claude/.credentials.json` | Same data as `/usage` in Claude Code. Expired access tokens are refreshed and written back atomically, so the CLI keeps working. |
+| **Claude** | `api.anthropic.com/api/oauth/usage`, using the Claude Code CLI login in `~/.claude/.credentials.json` | Same data as `/usage` in Claude Code. Expired access tokens are refreshed and written back atomically, so the CLI keeps working. The endpoint is rate limited, so it's polled at most every 5 minutes; on a 429 UsageTray backs off (up to 30 min) and keeps showing the last numbers (labeled *as of 14:50*). |
 
 A provider that isn't installed is simply hidden.
 
