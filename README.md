@@ -41,13 +41,13 @@ Then:
 ## Reading it
 
 ```
-7d   ███████████████▏░░░░░░░░   64%   +11   3d 6h
-│    │              │           │     │     └─ time until reset
-│    │              │           │     └─────── points ahead of (+) or behind (−) even pace
-│    │              │           └───────────── used
-│    │              └───────────────────────── pace: where even usage would put you now
-│    └──────────────────────────────────────── usage
-└───────────────────────────────────────────── window: 5h, 7d, opus, sonnet
+7d   ███│███│███│██▏│░░░│░░░│░░░   64%   +11   3d 6h
+│    │             │               │     │     └─ time until reset
+│    │             │               │     └────── points ahead of (+) or behind (−) even pace
+│    │             │               └──────────── used
+│    │             └──────────────────────────── pace: where even usage would put you now
+│    └────────────────────────────────────────── usage, split per day (7d) or per hour (5h)
+└─────────────────────────────────────────────── window: 5h, 7d, opus, sonnet
 ```
 
 <img src="docs/tray-icons.png" alt="Tray icon states" width="176" align="right">

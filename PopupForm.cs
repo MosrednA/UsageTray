@@ -212,6 +212,19 @@ sealed class PopupForm : Form
             g.FillPath(brush, fill);
         }
 
+        // Subtle segment gaps: one per day for multi-day windows, one per hour otherwise.
+        var segments = w.Length.TotalDays >= 2 ? (int)Math.Round(w.Length.TotalDays) : (int)Math.Round(w.Length.TotalHours);
+        if (segments is > 1 and <= 24)
+        {
+            using var gap = new SolidBrush(Theme.Bg);
+            var gapW = Math.Max(1, Px(1));
+            for (var k = 1; k < segments; k++)
+            {
+                var gx = (int)Math.Round(barL + barW * k / segments);
+                g.FillRectangle(gap, gx, (int)barY, gapW, (int)Math.Ceiling(barH));
+            }
+        }
+
         if (w.EvenPct is { } even)
         {
             var tx = barL + barW * (float)(even / 100);
