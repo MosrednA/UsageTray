@@ -14,8 +14,12 @@ static class DocAssets
             popup.RenderTo(Demo(), Path.Combine(docsDir, "flyout.png"));
         using (var logo = IconRenderer.Logo(256))
             logo.Save(Path.Combine(docsDir, "logo.png"), ImageFormat.Png);
-        using (var strip = TrayIconStrip(48, 16))
-            strip.Save(Path.Combine(docsDir, "tray-icons.png"), ImageFormat.Png);
+        File.Delete(Path.Combine(docsDir, "tray-icons.png"));
+        foreach (var style in Enum.GetValues<IconStyle>())
+        {
+            using var strip = IconStrip(style, 32);
+            strip.Save(Path.Combine(docsDir, $"icon-{style.ToString().ToLowerInvariant()}.png"), ImageFormat.Png);
+        }
         WriteIco(Path.Combine(assetsDir, "app.ico"), [16, 20, 24, 32, 40, 48, 64, 128, 256]);
     }
 
@@ -34,21 +38,70 @@ static class DocAssets
         ];
     }
 
-    static Bitmap TrayIconStrip(int size, int gap)
+    static readonly Color DarkTaskbar = Color.FromArgb(0x20, 0x20, 0x20);
+    static readonly Color LightTaskbar = Color.FromArgb(0xF3, 0xF3, 0xF3);
+
+    // Week window whose reset is placed so that even pace sits at the given percentage.
+    static UsageWindow Week(double used, double even) =>
+        new("7d", used, TimeSpan.FromDays(7), DateTimeOffset.Now + TimeSpan.FromDays(7) * (1 - even / 100));
+
+    // Green, orange and red situations, with both providers present.
+    static readonly IReadOnlyList<ProviderStatus>[] IconStates =
+    [
+        [new("Codex", [Week(42, 57)]), new("Claude", [Week(30, 50)])],
+        [new("Codex", [Week(64, 53)]), new("Claude", [Week(20, 40)])],
+        [new("Codex", [Week(50, 60)]), new("Claude", [Week(92, 69)])],
+    ];
+
+    /// <summary>One strip per icon style, showing the three states on a dark taskbar.</summary>
+    static Bitmap IconStrip(IconStyle style, int size)
     {
-        double[] used = [42, 64, 92];
-        var even = new[] { 57.0, 53, 69 };
-        var strip = new Bitmap(used.Length * size + (used.Length - 1) * gap, size);
+        int pad = size / 2, gap = size / 2;
+        var strip = new Bitmap(pad * 2 + IconStates.Length * size + (IconStates.Length - 1) * gap, size + pad * 2);
         using var g = Graphics.FromImage(strip);
-        for (var i = 0; i < used.Length; i++)
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        using (var bg = Theme.RoundRect(new RectangleF(0, 0, strip.Width, strip.Height), size * 0.3f))
+        using (var brush = new SolidBrush(DarkTaskbar))
+            g.FillPath(brush, bg);
+        for (var i = 0; i < IconStates.Length; i++)
         {
-            // Reset time chosen so the window sits at the given even-pace point.
-            var length = TimeSpan.FromDays(7);
-            var w = new UsageWindow("7d", used[i], length, DateTimeOffset.Now + length * (1 - even[i] / 100));
-            using var tile = IconRenderer.Tile(w, size);
-            g.DrawImage(tile, i * (size + gap), 0);
+            using var icon = IconRenderer.Draw(style, IconStates[i], size, light: false);
+            g.DrawImage(icon, pad + i * (size + gap), pad);
         }
         return strip;
+    }
+
+    /// <summary>
+    /// Every style and state at real tray sizes on dark and light taskbars, magnified 4×
+    /// (`UsageTray --preview-icons out.png`), for checking legibility.
+    /// </summary>
+    public static void PreviewIcons(string path)
+    {
+        int[] sizes = [16, 20, 24, 32];
+        const int Zoom = 4, Cell = 32 * Zoom + 16;
+        var styles = Enum.GetValues<IconStyle>();
+        using var sheet = new Bitmap(styles.Length * IconStates.Length * Cell, sizes.Length * 2 * Cell);
+        using var g = Graphics.FromImage(sheet);
+        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+        g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
+
+        var row = 0;
+        foreach (var size in sizes)
+            foreach (var light in new[] { false, true })
+            {
+                using (var bg = new SolidBrush(light ? LightTaskbar : DarkTaskbar))
+                    g.FillRectangle(bg, 0, row * Cell, sheet.Width, Cell);
+                var col = 0;
+                foreach (var style in styles)
+                    foreach (var state in IconStates)
+                    {
+                        using var icon = IconRenderer.Draw(style, state, size, light);
+                        g.DrawImage(icon, col * Cell + 8, row * Cell + 8, size * Zoom, size * Zoom);
+                        col++;
+                    }
+                row++;
+            }
+        sheet.Save(path, ImageFormat.Png);
     }
 
     // PNG-compressed ICO (supported since Vista).

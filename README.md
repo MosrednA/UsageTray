@@ -50,22 +50,30 @@ Then:
 └─────────────────────────────────────────────── window: 5h, 7d, opus, sonnet
 ```
 
-<img src="docs/tray-icons.png" alt="Tray icon states" width="176" align="right">
-
 | | |
 |---|---|
 | 🟢 **Green** | On or under pace |
 | 🟠 **Orange** | Faster than pace |
 | 🔴 **Red** | ≥ 90 % used, or > 15 points ahead of pace |
 
-The **tray icon** shows the percentage and color of whichever window is most at risk. Hover it for a one-line summary of everything.
+### Tray icon
+
+Pick a style via right-click → **Icon**. All three follow the same colors and adapt to light and dark taskbars.
+
+| Style | | Shows |
+|---|---|---|
+| **Ring** (default) | <img src="docs/icon-ring.png" alt="Ring icon" height="48"> | The window most at risk: % inside, progress ring, pace notch |
+| **Bars** | <img src="docs/icon-bars.png" alt="Bars icon" height="48"> | Codex (left) and Claude (right) side by side, each with a pace tick |
+| **Classic** | <img src="docs/icon-classic.png" alt="Classic icon" height="48"> | The window most at risk as a colored tile |
+
+Hover the icon for a one-line summary of everything.
 
 > **Tip:** a 5-hour window only starts when you send your first message, so early on you'll almost always be "ahead of pace". For 5h, watch the percentage; for 7d, the pace is what matters.
 
 | Action | |
 |---|---|
 | Click the icon | Open / close the flyout |
-| Right-click | Refresh · Sign in to Codex / Claude · Start with Windows · Quit |
+| Right-click | Refresh · Sign in to Codex / Claude · Icon style · Start with Windows · Quit |
 | `F5` / `R`, or click the footer | Refresh now |
 | `Esc`, or click elsewhere | Close |
 
@@ -101,6 +109,7 @@ dotnet run -c Release
 |---|---|
 | `UsageTray --snapshot out.png` | Render the flyout with your live data to a PNG |
 | `UsageTray --render-assets` | Regenerate `docs/*.png` and `assets/app.ico` from demo data |
+| `UsageTray --preview-icons out.png` | All icon styles at 16–32 px on dark and light taskbars, magnified |
 
 Tag a commit `v*` to build and publish a release automatically.
 
@@ -114,7 +123,7 @@ Tag a commit `v*` to build and publish a release automatically.
 | `CodexSource.cs` | Codex via `codex app-server`, with session-log fallback |
 | `ClaudeSource.cs` | OAuth token refresh + usage endpoint |
 | `Models.cs` | Usage windows, pace math, formatting |
-| `IconRenderer.cs` | Tray icon and logo |
+| `IconRenderer.cs` | Tray icon styles and logo |
 | `DocAssets.cs` | README images and `.ico` generator |
 | `L.cs` | English / Dutch strings |
 

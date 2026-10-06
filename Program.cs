@@ -15,6 +15,10 @@ static class Program
                     popup.RenderTo(data.OfType<ProviderStatus>().ToList(), path);
                 return;
 
+            case ["--preview-icons", var path]:
+                DocAssets.PreviewIcons(path);
+                return;
+
             case ["--render-assets"]:
                 ApplicationConfiguration.Initialize();
                 DocAssets.Render(docsDir: "docs", assetsDir: "assets");

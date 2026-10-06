@@ -23,6 +23,24 @@ sealed class TrayApp : ApplicationContext
         };
         autostart.CheckedChanged += (_, _) => Autostart.Enabled = autostart.Checked;
 
+        var iconMenu = new ToolStripMenuItem(L.T("Icon", "Pictogram"));
+        foreach (var (style, name) in new[]
+        {
+            (IconStyle.Ring, L.T("Ring", "Ring")),
+            (IconStyle.Bars, L.T("Bars (Codex | Claude)", "Balkjes (Codex | Claude)")),
+            (IconStyle.Classic, L.T("Classic", "Klassiek")),
+        })
+        {
+            var item = new ToolStripMenuItem(name) { Checked = style == Settings.IconStyle };
+            item.Click += (_, _) =>
+            {
+                Settings.IconStyle = style;
+                foreach (ToolStripMenuItem other in iconMenu.DropDownItems) other.Checked = other == item;
+                UpdateTray();
+            };
+            iconMenu.DropDownItems.Add(item);
+        }
+
         _tray.ContextMenuStrip = new ContextMenuStrip
         {
             Items =
@@ -30,12 +48,16 @@ sealed class TrayApp : ApplicationContext
                 new ToolStripMenuItem(L.T("Refresh", "Vernieuwen"), null, (_, _) => _ = RefreshAsync()),
                 new ToolStripMenuItem(L.T("Sign in to Codex…", "Inloggen bij Codex…"), null, (_, _) => _ = LoginAsync("Codex")),
                 new ToolStripMenuItem(L.T("Sign in to Claude…", "Inloggen bij Claude…"), null, (_, _) => _ = LoginAsync("Claude")),
+                new ToolStripSeparator(),
+                iconMenu,
                 autostart,
                 new ToolStripSeparator(),
                 new ToolStripMenuItem(L.T("Quit", "Afsluiten"), null, (_, _) => ExitThread()),
             },
         };
-        _tray.Icon = IconRenderer.Render(null);
+        _tray.Icon = IconRenderer.Render(Settings.IconStyle, []);
+        // Light/dark taskbar switch: redraw with matching ink.
+        SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
         _tray.Text = "UsageTray";
         _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) TogglePopup(); };
         _tray.Visible = true;
@@ -98,13 +120,8 @@ sealed class TrayApp : ApplicationContext
 
     void UpdateTray()
     {
-        // Icon shows the window most at risk: worst status first, then highest usage.
-        var focus = _data.SelectMany(p => p.Windows)
-            .OrderByDescending(w => w.Level)
-            .ThenByDescending(w => w.UsedPct)
-            .FirstOrDefault();
         var old = _tray.Icon;
-        _tray.Icon = IconRenderer.Render(focus);
+        _tray.Icon = IconRenderer.Render(Settings.IconStyle, _data);
         old?.Dispose();
 
         var tip = string.Join("\n", _data.Select(p => p.Error is not null
@@ -114,13 +131,38 @@ sealed class TrayApp : ApplicationContext
         _tray.Text = tip.Length > 127 ? tip[..127] : tip;
     }
 
+    void OnUserPreferenceChanged(object? sender, UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category == UserPreferenceCategory.General) UpdateTray();
+    }
+
     protected override void ExitThreadCore()
     {
+        SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         _timer.Dispose();
         _tray.Visible = false;
         _tray.Dispose();
         _popup.Dispose();
         base.ExitThreadCore();
+    }
+}
+
+static class Settings
+{
+    const string Key = @"Software\UsageTray";
+
+    public static IconStyle IconStyle
+    {
+        get
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(Key);
+            return Enum.TryParse<IconStyle>(key?.GetValue("IconStyle") as string, out var style) ? style : IconStyle.Ring;
+        }
+        set
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(Key);
+            key.SetValue("IconStyle", value.ToString());
+        }
     }
 }
 
