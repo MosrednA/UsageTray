@@ -28,8 +28,12 @@ A tiny native Windows tray app. One glance at the icon tells you if you're burni
 
 ## Install
 
+**Requires** Windows 10 or 11, plus the [Codex CLI](https://github.com/openai/codex) and/or [Claude Code](https://code.claude.com/docs/en/overview) signed in with a subscription. UsageTray shows whichever of the two it finds.
+
 Download **[UsageTray-win-x64.exe](https://github.com/MosrednA/UsageTray/releases/latest/download/UsageTray-win-x64.exe)** and run it. Nothing to install.
 
+> **"Windows protected your PC"?** The exe isn't code-signed, so SmartScreen warns on first run. Click *More info → Run anyway*, or [build it yourself](#build-from-source).
+>
 > Prefer a ~250 KB download instead of ~50 MB? Grab `UsageTray-win-x64-small.exe` from the [release](https://github.com/MosrednA/UsageTray/releases/latest) instead — it needs the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0).
 
 Then:
@@ -132,6 +136,7 @@ Tag a commit `v*` to build and publish a release automatically.
 ## Caveats
 
 - The Claude usage endpoint is **undocumented** and may change without notice. If Claude stops showing up after an update, that's the likely cause.
+- `codex app-server` is marked *experimental* by the Codex CLI. If it changes, UsageTray falls back to the session logs until it's updated.
 - UsageTray reuses the Claude Code CLI login rather than logging in itself. The Claude desktop app keeps its own login, which UsageTray can't access.
 - UsageTray is an independent project and is **not affiliated with or endorsed by OpenAI or Anthropic**. Codex and Claude are trademarks of their respective owners.
 
