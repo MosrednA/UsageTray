@@ -47,7 +47,7 @@ static class ClaudeSource
     {
         if (!Directory.Exists(Path.GetDirectoryName(CredPath))) return null;
         var now = DateTimeOffset.Now;
-        if (_last is not null && now < _nextAllowed) return Cached();
+        if (now < _nextAllowed) return _last is not null ? Cached() : RateLimited();
 
         string? plan = null;
         try
@@ -71,9 +71,7 @@ static class ClaudeSource
             _backoff = _backoff == TimeSpan.Zero ? MinInterval : TimeSpan.FromTicks(Math.Min(_backoff.Ticks * 2, MaxBackoff.Ticks));
             if (ex.RetryAfter > _backoff) _backoff = ex.RetryAfter.Value;
             _nextAllowed = now + _backoff;
-            return _last is not null
-                ? Cached()
-                : Fail(L.T($"rate limited · retrying at {_nextAllowed:HH:mm}", $"even geblokkeerd · opnieuw om {_nextAllowed:HH:mm}"), plan);
+            return _last is not null ? Cached() : RateLimited();
         }
         catch (Exception ex)
         {
@@ -93,6 +91,9 @@ static class ClaudeSource
             : null;
         return _last with { Windows = windows, Note = Fmt.Join(_last.Note, stale) };
     }
+
+    static ProviderStatus RateLimited() =>
+        Fail(L.T($"rate limited · retrying at {_nextAllowed:HH:mm}", $"even geblokkeerd · opnieuw om {_nextAllowed:HH:mm}"));
 
     static ProviderStatus Fail(string error, string? plan = null) => new("Claude", [], plan, Error: error);
 
