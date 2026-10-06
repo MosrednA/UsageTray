@@ -28,7 +28,8 @@ sealed class TrayApp : ApplicationContext
             Items =
             {
                 new ToolStripMenuItem(L.T("Refresh", "Vernieuwen"), null, (_, _) => _ = RefreshAsync()),
-                new ToolStripMenuItem(L.T("Sign in to Claude…", "Inloggen bij Claude…"), null, (_, _) => _ = ClaudeLoginAsync()),
+                new ToolStripMenuItem(L.T("Sign in to Codex…", "Inloggen bij Codex…"), null, (_, _) => _ = LoginAsync("Codex")),
+                new ToolStripMenuItem(L.T("Sign in to Claude…", "Inloggen bij Claude…"), null, (_, _) => _ = LoginAsync("Claude")),
                 autostart,
                 new ToolStripSeparator(),
                 new ToolStripMenuItem(L.T("Quit", "Afsluiten"), null, (_, _) => ExitThread()),
@@ -40,7 +41,7 @@ sealed class TrayApp : ApplicationContext
         _tray.Visible = true;
 
         _popup.RefreshRequested += () => _ = RefreshAsync();
-        _popup.LoginRequested += () => _ = ClaudeLoginAsync();
+        _popup.LoginRequested += provider => _ = LoginAsync(provider);
         _timer.Tick += (_, _) => _ = RefreshAsync();
         _timer.Start();
         _ = RefreshAsync();
@@ -63,7 +64,7 @@ sealed class TrayApp : ApplicationContext
         _busy = true;
         try
         {
-            var codex = Task.Run(CodexSource.Read);
+            var codex = Task.Run(CodexSource.ReadAsync);
             var claude = Task.Run(ClaudeSource.ReadAsync);
             _data = new[] { await codex, await claude }.OfType<ProviderStatus>().ToList();
             _updated = DateTimeOffset.Now;
@@ -76,12 +77,13 @@ sealed class TrayApp : ApplicationContext
         }
     }
 
-    /// <summary>Runs the official Claude Code login in a console window, then refreshes.</summary>
-    async Task ClaudeLoginAsync()
+    /// <summary>Runs the provider's official CLI login in a console window, then refreshes.</summary>
+    async Task LoginAsync(string provider)
     {
+        var command = provider == "Codex" ? "codex login" : "claude auth login";
         try
         {
-            using var login = Process.Start(new ProcessStartInfo("cmd.exe", "/c title Claude sign-in & claude auth login || pause")
+            using var login = Process.Start(new ProcessStartInfo("cmd.exe", $"/c title {provider} sign-in & {command} || pause")
             {
                 UseShellExecute = true,
             });

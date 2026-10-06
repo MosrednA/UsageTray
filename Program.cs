@@ -10,7 +10,7 @@ static class Program
             // Dev aids: render the flyout with live data, or regenerate README images + app icon from demo data.
             case ["--snapshot", var path]:
                 ApplicationConfiguration.Initialize();
-                var data = new[] { CodexSource.Read(), ClaudeSource.ReadAsync().GetAwaiter().GetResult() };
+                var data = new[] { CodexSource.ReadAsync().GetAwaiter().GetResult(), ClaudeSource.ReadAsync().GetAwaiter().GetResult() };
                 using (var popup = new PopupForm())
                     popup.RenderTo(data.OfType<ProviderStatus>().ToList(), path);
                 return;

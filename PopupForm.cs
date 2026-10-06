@@ -15,11 +15,12 @@ sealed class PopupForm : Form
 
     IReadOnlyList<ProviderStatus> _data = [];
     DateTimeOffset? _updated;
-    Rectangle _footer, _login;
+    Rectangle _footer;
+    readonly List<(Rectangle Bounds, string Provider)> _logins = [];
     readonly System.Windows.Forms.Timer _tick = new() { Interval = 30_000 };
 
     public event Action? RefreshRequested;
-    public event Action? LoginRequested;
+    public event Action<string>? LoginRequested;
     public DateTime LastHidden { get; private set; }
 
     public PopupForm()
@@ -104,16 +105,18 @@ sealed class PopupForm : Form
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        Cursor = _login.Contains(e.Location) || _footer.Contains(e.Location) ? Cursors.Hand : Cursors.Default;
+        Cursor = LoginAt(e.Location) is not null || _footer.Contains(e.Location) ? Cursors.Hand : Cursors.Default;
         base.OnMouseMove(e);
     }
 
     protected override void OnMouseClick(MouseEventArgs e)
     {
-        if (_login.Contains(e.Location)) { Hide(); LoginRequested?.Invoke(); }
+        if (LoginAt(e.Location) is { } provider) { Hide(); LoginRequested?.Invoke(provider); }
         else if (_footer.Contains(e.Location)) RefreshRequested?.Invoke();
         base.OnMouseClick(e);
     }
+
+    string? LoginAt(Point p) => _logins.FirstOrDefault(l => l.Bounds.Contains(p)).Provider;
 
     protected override void OnDpiChanged(DpiChangedEventArgs e)
     {
@@ -143,7 +146,7 @@ sealed class PopupForm : Form
         using var monoBold = new Font("Consolas", Px(12), FontStyle.Bold, GraphicsUnit.Pixel);
 
         int left = Px(Pad), right = Width - Px(Pad), y = Px(Pad);
-        _login = Rectangle.Empty;
+        _logins.Clear();
 
         if (_data.Count == 0)
         {
@@ -164,7 +167,7 @@ sealed class PopupForm : Form
             {
                 var metaBounds = Rectangle.FromLTRB(left + nameW, y, right, y + Px(HeadH));
                 Label(g, meta, small, p.Error is null ? Theme.Muted : Theme.Hot, metaBounds, right: true);
-                if (p.NeedsLogin) _login = metaBounds;
+                if (p.NeedsLogin) _logins.Add((metaBounds, p.Name));
             }
             y += Px(HeadH);
 

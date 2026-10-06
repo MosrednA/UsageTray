@@ -25,7 +25,7 @@ static class DocAssets
         var now = DateTimeOffset.Now;
         return
         [
-            new("Codex", [new("7d", 64, TimeSpan.FromDays(7), now.AddHours(79))], "plus", "1240 credits"),
+            new("Codex", [new("7d", 64, TimeSpan.FromDays(7), now.AddHours(79))], "plus", "1240 credits · 1 reset"),
             new("Claude",
             [
                 new("5h", 42, TimeSpan.FromHours(5), now.AddMinutes(130)),

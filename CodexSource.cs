@@ -1,17 +1,113 @@
+using System.Diagnostics;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace UsageTray;
 
 /// <summary>
-/// Reads the latest rate-limit snapshot Codex writes into its session logs
-/// (~/.codex/sessions/YYYY/MM/DD/*.jsonl, "token_count" events). Fully local, no auth.
+/// Codex limits. Live via the official `codex app-server` JSON-RPC interface, which uses
+/// Codex's own login; falls back to the last snapshot Codex wrote into its session logs
+/// (~/.codex/sessions/YYYY/MM/DD/*.jsonl) when the CLI isn't available.
 /// </summary>
 static class CodexSource
 {
-    static readonly string SessionsDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex", "sessions");
+    static readonly string CodexHome = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+    static readonly string SessionsDir = Path.Combine(CodexHome, "sessions");
+
+    /// <returns>null when Codex isn't installed.</returns>
+    public static async Task<ProviderStatus?> ReadAsync()
+    {
+        var exe = FindCli();
+        if (exe is null && !Directory.Exists(CodexHome)) return null;
+        try
+        {
+            if (exe is not null && await ReadLiveAsync(exe) is { } live) return live;
+        }
+        catch (Exception)
+        {
+            // Fall through to the session logs.
+        }
+        return ReadLogs();
+    }
+
+    // --- Live: codex app-server -------------------------------------------------------------
+
+    static async Task<ProviderStatus?> ReadLiveAsync(string exe)
+    {
+        var psi = exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            ? new ProcessStartInfo(exe, "app-server")
+            : new ProcessStartInfo("cmd.exe", $"/d /c \"\"{exe}\" app-server\"");
+        psi.UseShellExecute = false;
+        psi.CreateNoWindow = true;
+        psi.RedirectStandardInput = psi.RedirectStandardOutput = psi.RedirectStandardError = true;
+        psi.StandardOutputEncoding = Encoding.UTF8;
+
+        using var proc = Process.Start(psi);
+        if (proc is null) return null;
+        _ = proc.StandardError.ReadToEndAsync(); // drain so the server never blocks on stderr
+
+        try
+        {
+            var stdin = proc.StandardInput;
+            await stdin.WriteLineAsync("""{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"usagetray","version":"0.1.0"}}}""");
+            await stdin.WriteLineAsync("""{"jsonrpc":"2.0","method":"initialized"}""");
+            await stdin.WriteLineAsync("""{"jsonrpc":"2.0","id":2,"method":"account/read"}""");
+            await stdin.WriteLineAsync("""{"jsonrpc":"2.0","id":3,"method":"account/rateLimits/read"}""");
+            await stdin.FlushAsync();
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            JsonNode? account = null, limits = null;
+            while (account is null || limits is null)
+            {
+                var line = await proc.StandardOutput.ReadLineAsync(timeout.Token);
+                if (line is null) return null;
+                JsonNode? msg;
+                try { msg = JsonNode.Parse(line); }
+                catch (JsonException) { continue; }
+                if (msg?["id"] is not JsonValue idValue || !idValue.TryGetValue<int>(out var id)) continue;
+                if (id == 2) account = msg;
+                else if (id == 3) limits = msg;
+            }
+
+            if (account!["result"] is JsonObject acc && acc["account"] is null && acc["requiresOpenaiAuth"]?.GetValue<bool>() == true)
+                return new("Codex", [], Error: L.T("not signed in · click to sign in", "niet ingelogd · klik om in te loggen"), NeedsLogin: true);
+
+            if (limits!["result"] is not JsonObject result || result["rateLimits"] is not JsonObject main)
+                return limits["error"]?["message"]?.ToString() is { } err ? new("Codex", [], Error: err) : null;
+
+            var resets = result["rateLimitResetCredits"]?["availableCount"]?.GetValue<int>() ?? 0;
+            return Build(main, asOf: null, result["rateLimitsByLimitId"] as JsonObject, resets);
+        }
+        finally
+        {
+            try
+            {
+                proc.StandardInput.Close(); // stdio server exits on EOF
+                if (!proc.WaitForExit(2000)) proc.Kill(entireProcessTree: true);
+            }
+            catch (Exception)
+            {
+                // Already gone.
+            }
+        }
+    }
+
+    static string? FindCli()
+    {
+        var dirs = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var name in new[] { "codex.exe", "codex.cmd" })
+            foreach (var dir in dirs)
+            {
+                var path = Path.Combine(dir.Trim('"'), name);
+                if (File.Exists(path)) return path;
+            }
+        return null;
+    }
+
+    // --- Fallback: session logs -------------------------------------------------------------
 
     // Many sessions (subagents, automations) never log rate limits; remember per file so we
     // don't re-scan unchanged files on every refresh.
@@ -19,16 +115,14 @@ static class CodexSource
 
     sealed record Snapshot(JsonObject Limits, DateTimeOffset At);
 
-    /// <returns>null when Codex isn't installed.</returns>
-    public static ProviderStatus? Read()
+    static ProviderStatus ReadLogs()
     {
-        if (!Directory.Exists(Path.GetDirectoryName(SessionsDir))) return null;
         try
         {
             foreach (var file in RecentSessionFiles())
             {
                 if (LatestSnapshot(file) is { } hit)
-                    return Build(hit);
+                    return Build(hit.Limits, hit.At, others: null, resets: 0);
             }
             return new("Codex", [], Error: L.T("no limit data in recent sessions", "geen limietdata in recente sessies"));
         }
@@ -94,43 +188,61 @@ static class CodexSource
         return null;
     }
 
-    static ProviderStatus Build(Snapshot s)
+    // --- Shared: both sources carry the same shape, snake_case in logs, camelCase live ------
+
+    static JsonNode? Get(JsonNode? n, string snake, string camel) => n?[snake] ?? n?[camel];
+
+    static ProviderStatus Build(JsonObject main, DateTimeOffset? asOf, JsonObject? others, int resets)
     {
-        var windows = new[] { s.Limits["primary"], s.Limits["secondary"] }
-            .Select(n => ToWindow(n, s.At))
-            .OfType<UsageWindow>()
-            .OrderBy(w => w.Length)
-            .ToList();
+        var at = asOf ?? DateTimeOffset.Now;
+        var windows = Windows(main, at, label: null).OrderBy(w => w.Length).ToList();
+
+        // Secondary pools (e.g. a model-specific reserve) only once they're in use.
+        var mainId = Get(main, "limit_id", "limitId")?.ToString();
+        foreach (var (id, other) in others ?? new JsonObject())
+        {
+            if (id == mainId || other is not JsonObject o) continue;
+            var label = Get(o, "limit_name", "limitName")?.ToString() ?? id;
+            windows.AddRange(Windows(o, at, label).Where(w => w.UsedPct > 0));
+        }
 
         string? credits = null;
-        if (s.Limits["credits"] is JsonObject c && c["has_credits"]?.GetValue<bool>() == true)
+        if (Get(main, "credits", "credits") is JsonObject c && Get(c, "has_credits", "hasCredits")?.GetValue<bool>() == true)
         {
-            credits = c["unlimited"]?.GetValue<bool>() == true ? "credits ∞"
-                : double.TryParse(c["balance"]?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var bal)
+            credits = Get(c, "unlimited", "unlimited")?.GetValue<bool>() == true ? "credits ∞"
+                : double.TryParse(Get(c, "balance", "balance")?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var bal)
                     ? $"{bal:0} credits" : null;
         }
 
-        // Codex only logs limits while you use it, so flag old snapshots.
-        var age = DateTimeOffset.Now - s.At;
-        var stale = age > TimeSpan.FromMinutes(15) ? L.T($"as of {Fmt.AsOf(s.At)}", $"stand {Fmt.AsOf(s.At)}") : null;
+        var resetNote = resets switch { 0 => null, 1 => "1 reset", _ => $"{resets} resets" };
 
-        return new("Codex", windows, s.Limits["plan_type"]?.ToString(), Fmt.Join(credits, stale));
+        // Log snapshots are only written while Codex is in use, so flag old ones.
+        var stale = asOf is { } t && DateTimeOffset.Now - t > TimeSpan.FromMinutes(15)
+            ? L.T($"as of {Fmt.AsOf(t)}", $"stand {Fmt.AsOf(t)}")
+            : null;
+
+        return new("Codex", windows, Get(main, "plan_type", "planType")?.ToString(), Fmt.Join(credits, resetNote, stale));
     }
 
-    static UsageWindow? ToWindow(JsonNode? n, DateTimeOffset at)
+    static IEnumerable<UsageWindow> Windows(JsonObject limits, DateTimeOffset at, string? label) =>
+        new[] { limits["primary"], limits["secondary"] }
+            .Select(n => ToWindow(n, at, label))
+            .OfType<UsageWindow>();
+
+    static UsageWindow? ToWindow(JsonNode? n, DateTimeOffset at, string? label)
     {
         if (n is null) return null;
-        var used = n["used_percent"]?.GetValue<double>() ?? 0;
-        var length = TimeSpan.FromMinutes(n["window_minutes"]?.GetValue<double>() ?? 0);
+        var used = Get(n, "used_percent", "usedPercent")?.GetValue<double>() ?? 0;
+        var length = TimeSpan.FromMinutes(Get(n, "window_minutes", "windowDurationMins")?.GetValue<double>() ?? 0);
         DateTimeOffset? reset =
-            n["resets_at"] is JsonValue ra ? DateTimeOffset.FromUnixTimeSeconds((long)ra.GetValue<double>())
+            Get(n, "resets_at", "resetsAt") is JsonValue ra ? DateTimeOffset.FromUnixTimeSeconds((long)ra.GetValue<double>())
             : n["resets_in_seconds"] is JsonValue ri ? at.AddSeconds(ri.GetValue<double>())
             : null;
 
         // Window rolled over since the snapshot was written.
         if (reset <= DateTimeOffset.Now) (used, reset) = (0, null);
 
-        var label = length.TotalDays >= 1 ? $"{length.TotalDays:0}d" : $"{length.TotalHours:0}h";
+        label ??= length.TotalDays >= 1 ? $"{length.TotalDays:0}d" : $"{length.TotalHours:0}h";
         return new(label, used, length, reset);
     }
 }

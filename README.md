@@ -22,8 +22,8 @@
 A tiny native Windows tray app. One glance at the icon tells you if you're burning through a limit; one click shows every window with a pace marker, so you know whether to slow down — or that you've got room to spare.
 
 - **Pace, not just percentage.** A white tick marks where you'd be with perfectly even usage. Past the tick means you're going too fast.
-- **Codex + Claude in one place.** Weekly and 5-hour windows, model-specific Claude limits, Codex credits.
-- **Zero setup for Codex.** Reads the logs Codex already writes. No keys, no login.
+- **Codex + Claude in one place.** Weekly and 5-hour windows, model-specific limits, Codex credits and free resets.
+- **No extra logins.** Uses the sign-ins of the official Codex and Claude Code CLIs. No API keys.
 - **Lightweight.** Native WinForms, no dependencies, no telemetry. Refreshes every 2 minutes.
 
 ## Install
@@ -36,7 +36,7 @@ Then:
 
 1. **Keep the icon visible** — drag it from the `^` overflow onto the taskbar (or *Taskbar settings → Other system tray icons → UsageTray*).
 2. **Start with Windows** — right-click the icon and tick it.
-3. **Claude** — if you see *sign-in expired*, click it (or right-click → *Sign in to Claude…*). This runs the official `claude auth login`.
+3. **Signed out?** Click the red message in the flyout (or right-click → *Sign in to Codex…* / *Sign in to Claude…*). This runs the official `codex login` or `claude auth login`.
 
 ## Reading it
 
@@ -65,7 +65,7 @@ The **tray icon** shows the percentage and color of whichever window is most at 
 | Action | |
 |---|---|
 | Click the icon | Open / close the flyout |
-| Right-click | Refresh · Sign in to Claude · Start with Windows · Quit |
+| Right-click | Refresh · Sign in to Codex / Claude · Start with Windows · Quit |
 | `F5` / `R`, or click the footer | Refresh now |
 | `Esc`, or click elsewhere | Close |
 
@@ -75,16 +75,17 @@ The UI is in English, or Dutch when Windows is set to Dutch. Force a language wi
 
 | | Source | Notes |
 |---|---|---|
-| **Codex** | Latest `token_count` event in `~/.codex/sessions/**/*.jsonl` | Local and read-only. Codex only logs limits while you use it, so older snapshots are labeled *as of 14:50*. If the window has reset since, it shows 0 %. |
+| **Codex** | The official `codex app-server` (`account/rateLimits/read`), run locally | Live, using Codex's own login. Also shows credits and available free resets. If the CLI isn't on your `PATH`, it falls back to the last snapshot in `~/.codex/sessions` (labeled *as of 14:50*). |
 | **Claude** | `api.anthropic.com/api/oauth/usage`, using the Claude Code CLI login in `~/.claude/.credentials.json` | Same data as `/usage` in Claude Code. Expired access tokens are refreshed and written back atomically, so the CLI keeps working. |
 
 A provider that isn't installed is simply hidden.
 
 ### Privacy & security
 
-- **Reads** your Codex session logs and the Claude Code credentials file.
+- **Runs** `codex app-server` locally for a second on each refresh; Codex handles its own auth and network.
+- **Reads** the Claude Code credentials file, and your Codex session logs as a fallback.
 - **Writes** only refreshed Claude tokens back to that same credentials file, plus the optional autostart entry (`HKCU\…\Run`).
-- **Talks to** `platform.claude.com` (token refresh) and `api.anthropic.com` (usage). Nothing else. No telemetry, no analytics.
+- **Talks to** `platform.claude.com` (token refresh) and `api.anthropic.com` (usage) itself. Nothing else. No telemetry, no analytics.
 
 ## Build from source
 
@@ -108,9 +109,9 @@ Tag a commit `v*` to build and publish a release automatically.
 
 | File | Role |
 |---|---|
-| `TrayApp.cs` | Tray icon, menu, refresh timer, Claude sign-in, autostart |
+| `TrayApp.cs` | Tray icon, menu, refresh timer, sign-in, autostart |
 | `PopupForm.cs` | The flyout — custom-drawn, DPI-aware |
-| `CodexSource.cs` | Codex session-log reader |
+| `CodexSource.cs` | Codex via `codex app-server`, with session-log fallback |
 | `ClaudeSource.cs` | OAuth token refresh + usage endpoint |
 | `Models.cs` | Usage windows, pace math, formatting |
 | `IconRenderer.cs` | Tray icon and logo |
