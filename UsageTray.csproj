@@ -13,7 +13,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Product>UsageTray</Product>
     <Description>Codex and Claude subscription limits with pace tracking, in the Windows system tray.</Description>
     <Authors>MosrednA</Authors>
