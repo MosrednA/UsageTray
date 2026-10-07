@@ -10,6 +10,8 @@ sealed class TrayApp : ApplicationContext
     readonly PopupForm _popup = new(); // created first: installs the WinForms sync context for awaits
     readonly NotifyIcon _tray = new();
     readonly System.Windows.Forms.Timer _timer = new() { Interval = (int)RefreshEvery.TotalMilliseconds };
+    readonly ToolStripMenuItem _codexLogin, _claudeLogin;
+    Bitmap? _check;
     IReadOnlyList<ProviderStatus> _data = [];
     DateTimeOffset? _updated;
     bool _busy;
@@ -41,13 +43,16 @@ sealed class TrayApp : ApplicationContext
             iconMenu.DropDownItems.Add(item);
         }
 
+        _codexLogin = new ToolStripMenuItem(L.T("Sign in to Codex…", "Inloggen bij Codex…"), null, (_, _) => _ = LoginAsync("Codex"));
+        _claudeLogin = new ToolStripMenuItem(L.T("Sign in to Claude…", "Inloggen bij Claude…"), null, (_, _) => _ = LoginAsync("Claude"));
+
         _tray.ContextMenuStrip = new ContextMenuStrip
         {
             Items =
             {
                 new ToolStripMenuItem(L.T("Refresh", "Vernieuwen"), null, (_, _) => _ = RefreshAsync()),
-                new ToolStripMenuItem(L.T("Sign in to Codex…", "Inloggen bij Codex…"), null, (_, _) => _ = LoginAsync("Codex")),
-                new ToolStripMenuItem(L.T("Sign in to Claude…", "Inloggen bij Claude…"), null, (_, _) => _ = LoginAsync("Claude")),
+                _codexLogin,
+                _claudeLogin,
                 new ToolStripSeparator(),
                 iconMenu,
                 autostart,
@@ -55,6 +60,8 @@ sealed class TrayApp : ApplicationContext
                 new ToolStripMenuItem(L.T("Quit", "Afsluiten"), null, (_, _) => ExitThread()),
             },
         };
+        // Green check on the sign-in items whose provider is signed in; drawn per DPI when the menu opens.
+        _tray.ContextMenuStrip.Opening += (_, _) => UpdateLoginItems();
         _tray.Icon = IconRenderer.Render(Settings.IconStyle, []);
         // Light/dark taskbar switch: redraw with matching ink.
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
@@ -129,6 +136,21 @@ sealed class TrayApp : ApplicationContext
             : $"{p.Name}  " + string.Join("  ", p.Windows.Select(w => $"{w.Label} {w.UsedPct:0}% ({Fmt.Delta(w.Delta)})"))));
         if (tip.Length == 0) tip = "UsageTray";
         _tray.Text = tip.Length > 127 ? tip[..127] : tip;
+    }
+
+    void UpdateLoginItems()
+    {
+        var menu = _tray.ContextMenuStrip!;
+        var size = (int)Math.Round(16 * menu.DeviceDpi / 96f);
+        if (_check?.Width != size)
+        {
+            _check?.Dispose();
+            _check = IconRenderer.Check(size);
+            menu.ImageScalingSize = new Size(size, size);
+        }
+
+        foreach (var (item, name) in new[] { (_codexLogin, "Codex"), (_claudeLogin, "Claude") })
+            item.Image = _data.Any(p => p.Name == name && !p.NeedsLogin) ? _check : null;
     }
 
     void OnUserPreferenceChanged(object? sender, UserPreferenceChangedEventArgs e)

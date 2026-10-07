@@ -147,6 +147,22 @@ static class IconRenderer
         g.DrawString(text, font, brush, new RectangleF(-2, s / 32f, s + 4, s), format);
     }
 
+    /// <summary>Green disc with a white tick, for "signed in" menu items.</summary>
+    public static Bitmap Check(int s)
+    {
+        var bmp = new Bitmap(s, s);
+        using var g = Graphics.FromImage(bmp);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+        var inset = s * 0.06f;
+        using (var disc = new SolidBrush(Theme.Ok))
+            g.FillEllipse(disc, inset, inset, s - 2 * inset, s - 2 * inset);
+        using var tick = new Pen(Color.White, Math.Max(1.5f, s * 0.12f)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
+        g.DrawLines(tick, [new PointF(s * 0.29f, s * 0.52f), new PointF(s * 0.44f, s * 0.67f), new PointF(s * 0.72f, s * 0.36f)]);
+        return bmp;
+    }
+
     /// <summary>App logo: two usage bars crossed by a pace tick.</summary>
     public static Bitmap Logo(int size)
     {
