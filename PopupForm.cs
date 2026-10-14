@@ -15,12 +15,13 @@ sealed class PopupForm : Form
 
     IReadOnlyList<ProviderStatus> _data = [];
     DateTimeOffset? _updated;
-    Rectangle _footer;
+    Rectangle _footer, _drill;
     readonly List<(Rectangle Bounds, string Provider)> _logins = [];
     readonly System.Windows.Forms.Timer _tick = new() { Interval = 30_000 };
 
     public event Action? RefreshRequested;
     public event Action<string>? LoginRequested;
+    public event Action? DetailsRequested;
     public DateTime LastHidden { get; private set; }
 
     public PopupForm()
@@ -105,13 +106,14 @@ sealed class PopupForm : Form
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        Cursor = LoginAt(e.Location) is not null || _footer.Contains(e.Location) ? Cursors.Hand : Cursors.Default;
+        Cursor = LoginAt(e.Location) is not null || _footer.Contains(e.Location) || _drill.Contains(e.Location) ? Cursors.Hand : Cursors.Default;
         base.OnMouseMove(e);
     }
 
     protected override void OnMouseClick(MouseEventArgs e)
     {
         if (LoginAt(e.Location) is { } provider) { Hide(); LoginRequested?.Invoke(provider); }
+        else if (_drill.Contains(e.Location)) DetailsRequested?.Invoke();
         else if (_footer.Contains(e.Location)) RefreshRequested?.Invoke();
         base.OnMouseClick(e);
     }
@@ -147,6 +149,7 @@ sealed class PopupForm : Form
 
         int left = Px(Pad), right = Width - Px(Pad), y = Px(Pad);
         _logins.Clear();
+        _drill = Rectangle.Empty;
 
         if (_data.Count == 0)
         {
@@ -176,6 +179,7 @@ sealed class PopupForm : Form
                 DrawRow(g, w, mono, monoBold, left, right, y);
                 y += Px(RowH);
             }
+            if (p.Drill) _drill = Rectangle.FromLTRB(0, head.Top, Width, y);
             y += Px(GapH);
         }
         if (_data.Count > 0) y -= Px(GapH);
@@ -237,7 +241,7 @@ sealed class PopupForm : Form
 
         Label(g, $"{w.UsedPct:0}%", monoBold, Theme.Text, new Rectangle(pctX, y, Px(PctW), rowH), right: true);
         Label(g, Fmt.Delta(w.Delta), mono, w.Delta > 1 ? color : Theme.Ok, new Rectangle(deltaX, y, Px(DeltaW), rowH), right: true);
-        var reset = w.ResetsAt is { } r ? Fmt.Span(r - DateTimeOffset.Now) : "—";
+        var reset = w.Detail ?? (w.ResetsAt is { } r ? Fmt.Span(r - DateTimeOffset.Now) : "—");
         Label(g, reset, mono, Theme.Muted, new Rectangle(resetX, y, Px(ResetW), rowH), right: true);
     }
 

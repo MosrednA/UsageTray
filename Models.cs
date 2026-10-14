@@ -3,7 +3,7 @@ namespace UsageTray;
 enum Level { Ok, Warn, Hot }
 
 /// <summary>One rolling limit window, e.g. "Codex 7d" or "Claude 5h".</summary>
-sealed record UsageWindow(string Label, double UsedPct, TimeSpan Length, DateTimeOffset? ResetsAt)
+sealed record UsageWindow(string Label, double UsedPct, TimeSpan Length, DateTimeOffset? ResetsAt, string? Detail = null)
 {
     /// <summary>Where usage would be now if spread evenly over the window.</summary>
     public double? EvenPct
@@ -31,7 +31,8 @@ sealed record ProviderStatus(
     string? Plan = null,
     string? Note = null,
     string? Error = null,
-    bool NeedsLogin = false);
+    bool NeedsLogin = false,
+    bool Drill = false); // click opens a detail flyout
 
 static class Fmt
 {
@@ -48,6 +49,8 @@ static class Fmt
         var local = at.ToLocalTime();
         return local.Date == DateTime.Today ? $"{local:HH:mm}" : $"{local:d MMM HH:mm}";
     }
+
+    public static string Bytes(long bytes) => bytes >= 1L << 30 ? $"{bytes / (double)(1L << 30):0.0}G" : $"{bytes >> 20}M";
 
     public static string Delta(double? d) => d switch
     {
