@@ -72,7 +72,7 @@ sealed class TrayApp : ApplicationContext
 
         _popup.RefreshRequested += () => _ = RefreshAsync();
         _popup.LoginRequested += provider => _ = LoginAsync(provider);
-        _popup.DetailsRequested += () => _procs.ShowNear(_popup.Bounds);
+        _popup.SystemClicked += () => _procs.ShowNear(_popup.Bounds);
         _timer.Tick += (_, _) => _ = RefreshAsync();
         _timer.Start();
         _ = RefreshAsync();
@@ -81,16 +81,13 @@ sealed class TrayApp : ApplicationContext
     void TogglePopup()
     {
         if (_popup.Visible) { _popup.Hide(); return; }
-        // The click that deactivated (and hid) the popup lands here right after; don't reopen.
-        if ((DateTime.Now - _popup.LastHidden).TotalMilliseconds < 300) return;
+        // The click that deactivated (and hid) a flyout lands here right after; don't reopen.
+        if (new[] { _popup.LastHidden, _procs.LastHidden }.Any(t => (DateTime.Now - t).TotalMilliseconds < 300)) return;
 
-        _popup.SetData(PopupData(), _updated);
+        _popup.SetData(_data, _updated, SystemSource.Read());
         _popup.ShowNearTray();
         if (_updated is null || DateTimeOffset.Now - _updated > TimeSpan.FromSeconds(30)) _ = RefreshAsync();
     }
-
-    // Flyout only: the tray icon and tooltip stay about subscription limits.
-    IReadOnlyList<ProviderStatus> PopupData() => [.. _data, SystemSource.Read()];
 
     async Task RefreshAsync()
     {
@@ -103,7 +100,7 @@ sealed class TrayApp : ApplicationContext
             _data = new[] { await codex, await claude }.OfType<ProviderStatus>().ToList();
             _updated = DateTimeOffset.Now;
             UpdateTray();
-            _popup.SetData(PopupData(), _updated);
+            _popup.SetData(_data, _updated, SystemSource.Read());
         }
         finally
         {

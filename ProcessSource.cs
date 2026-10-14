@@ -1,17 +1,21 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using Microsoft.Win32.SafeHandles;
 
 namespace UsageTray;
 
-sealed record Proc(int Pid, int ParentPid, string Name, long Commit, DateTime? Started, string? CommandLine);
+/// <param name="CanEnd">This app may terminate it (not a guarantee that nothing else stops it).</param>
+sealed record Proc(int Pid, int ParentPid, string Name, long Commit, DateTime? Started, string? CommandLine, bool CanEnd);
 
 /// <summary>One process as shown in the flyout; <see cref="Started"/> guards against PID reuse when ending it.</summary>
 sealed record ProcRow(int Pid, DateTime? Started, string Name, string Detail, long Commit, bool Protected);
 
 /// <summary>An app: a root process plus its descendants. <see cref="Members"/> has the root first.</summary>
 /// <param name="Link">Opens the app's own view of it (Claude sessions: claude://… in the desktop app).</param>
-sealed record ProcGroup(string Title, string Detail, long Commit, IReadOnlyList<ProcRow> Members, string? Link = null)
+/// <param name="Sessions">Claude Code sessions this app started. They have their own rows, but can end with it.</param>
+sealed record ProcGroup(string Title, string Detail, long Commit, IReadOnlyList<ProcRow> Members, string? Link = null, int Sessions = 0)
 {
     public int RootPid => Members[0].Pid;
     public bool Protected => Members[0].Protected;
@@ -30,27 +34,36 @@ static class ProcessSource
     static readonly HashSet<string> Critical = new(StringComparer.OrdinalIgnoreCase)
         { "System", "Registry", "smss", "csrss", "wininit", "winlogon", "services", "lsass", "svchost", "dwm", "fontdrvhost" };
 
+    // Chromium browsers: one row with a renderer count instead of a window title.
+    static readonly HashSet<string> Browsers = new(StringComparer.OrdinalIgnoreCase)
+        { "chrome", "msedge", "brave", "vivaldi", "opera" };
+
     public static IReadOnlyList<ProcGroup> Read(int top = 40)
     {
         var procs = Snapshot();
+        var sessions = ClaudeSessions.Read(procs);
 
         // A parent PID only counts when that process is older than the child (PIDs get reused).
         Proc? Parent(Proc p) => procs.TryGetValue(p.ParentPid, out var a) && a.Pid != p.Pid && a.Started <= p.Started ? a : null;
 
-        bool NestedCli(Proc p)
+        bool IsSession(Proc p) => sessions.ContainsKey(p.Pid) || IsCli(p);
+
+        // Claude Code sessions are apps of their own, apart from whatever launched them. A session
+        // started from inside another one (a `claude -p` run by a tool) stays with that one.
+        bool OwnGroup(Proc p)
         {
+            if (!IsSession(p)) return false;
             var guard = 0;
             for (var a = Parent(p); a is not null && guard++ < 64; a = Parent(a))
-                if (IsCli(a)) return true;
-            return false;
+                if (IsSession(a)) return false;
+            return true;
         }
 
         var kids = new Dictionary<int, List<Proc>>();
         var roots = new List<Proc>();
         foreach (var p in procs.Values)
         {
-            // Claude Code sessions are apps of their own, not part of whatever launched them.
-            if (Parent(p) is { } parent && !Launchers.Contains(parent.Name) && !(IsCli(p) && !NestedCli(p)))
+            if (Parent(p) is { } parent && !Launchers.Contains(parent.Name) && !OwnGroup(p))
             {
                 if (!kids.TryGetValue(parent.Pid, out var list)) kids[parent.Pid] = list = [];
                 list.Add(p);
@@ -66,69 +79,93 @@ static class ProcessSource
             return all;
         }
 
-        var desktop = procs.Values.Where(p => IsDesktop(p) && !p.CommandLine!.Contains("--type=")).Select(p => p.Pid).ToHashSet();
-        var sessions = ClaudeSessions.Match(roots.Where(IsCli).ToList(), desktop);
+        var trees = roots.Select(Tree).ToList();
+        var groupOf = new Dictionary<int, int>();
+        foreach (var tree in trees)
+            foreach (var p in tree)
+                groupOf[p.Pid] = tree[0].Pid;
 
-        return roots
-            .Select(r => (Root: r, All: Tree(r)))
-            .Select(x => (x.Root, x.All, Commit: x.All.Sum(p => p.Commit)))
-            .OrderByDescending(x => x.Commit)
+        // Ending Claude desktop or a terminal also ends the sessions it started.
+        var launched = new Dictionary<int, int>();
+        foreach (var r in roots.Where(IsSession))
+            if (Parent(r) is { } parent && !Launchers.Contains(parent.Name) && groupOf.TryGetValue(parent.Pid, out var group))
+                launched[group] = launched.GetValueOrDefault(group) + 1;
+
+        return trees
+            .OrderByDescending(t => t.Sum(p => p.Commit))
             .Take(top)
-            .Select(x => Build(x.Root, x.All, x.Commit, sessions, desktop))
+            .Select(t => Build(t, IsSession(t[0]), sessions.GetValueOrDefault(t[0].Pid), launched.GetValueOrDefault(t[0].Pid)))
             .ToList();
     }
 
-    static ProcGroup Build(Proc root, List<Proc> all, long commit, Dictionary<int, ClaudeSession> sessions, HashSet<int> desktop)
+    static ProcGroup Build(List<Proc> all, bool isSession, ClaudeSession? s, int launched)
     {
-        var browser = root.Name.ToLowerInvariant() is "chrome" or "msedge";
-        var title = root.Name;
-        string? detail, link = null;
-        if (IsCli(root))
-        {
-            sessions.TryGetValue(root.Pid, out var s);
-            title = s?.Title is { Length: > 0 } t ? (s.Exact ? t : "~ " + t) : L.T("Claude Code session", "Claude Code-sessie");
-            var kind = desktop.Contains(root.ParentPid) ? null
-                : Regex.IsMatch(root.CommandLine!, @"\s(-p|--print)(\s|$)") ? "print" : "cli";
-            var idle = s?.LastActivity is { } at ? L.T("idle ", "stil ") + Fmt.Span(DateTimeOffset.Now - at) : null;
-            detail = Fmt.Join("claude", kind, idle);
-            if (s?.LocalId is { Length: > 0 } id) link = "claude://claude.ai/epitaxy/" + id;
-        }
-        else if (IsDesktop(root)) (title, detail) = ("Claude desktop", null);
-        else if (browser) detail = $"{all.Count(p => Describe(p) == "renderer")} renderers";
-        else detail = WindowTitle(root.Pid);
-
-        var members = all.Skip(1).OrderByDescending(p => p.Commit).Prepend(root)
+        var root = all[0];
+        var browser = Browsers.Contains(root.Name);
+        var members = all
             .Select(p => new ProcRow(p.Pid, p.Started, p.Name, p == root && browser ? "browser" : Describe(p), p.Commit, IsProtected(p)))
             .ToList();
-        return new(title, Fmt.Join(detail, all.Count > 1 ? $"{all.Count} proc" : null) ?? "", commit, members, link);
+
+        var title = root.Name;
+        string? detail, link = null;
+        if (isSession)
+        {
+            title = s?.Title ?? L.T("Claude Code session", "Claude Code-sessie");
+            var status = s is { Status: "idle", StatusSince: { } at } ? L.T("idle ", "stil ") + Fmt.Span(DateTimeOffset.Now - at) : s?.Status;
+            detail = Fmt.Join("claude", s?.Entrypoint is "claude-desktop" ? null : s?.Entrypoint, status);
+            if (s?.LocalId is { } id) link = "claude://claude.ai/epitaxy/" + id;
+        }
+        else if (IsDesktop(root)) (title, detail) = ("Claude desktop", null);
+        else if (browser) detail = $"{members.Count(m => m.Detail == "renderer")} renderers";
+        else detail = WindowTitle(root.Pid);
+
+        return new(title, Fmt.Join(detail, all.Count > 1 ? $"{all.Count} proc" : null) ?? "", all.Sum(p => p.Commit), members, link, launched);
     }
 
     /// <summary>Ends the given processes; skips protected ones and PIDs that were reused since the snapshot.</summary>
-    /// <returns>How many were ended.</returns>
+    /// <returns>How many could not be ended.</returns>
     public static int End(IEnumerable<ProcRow> rows)
     {
-        var ended = 0;
+        var failed = 0;
+        var ending = new List<Process>();
         foreach (var row in rows.Where(r => !r.Protected))
         {
+            Process? p = null;
             try
             {
-                using var p = Process.GetProcessById(row.Pid);
-                if (p.StartTime != row.Started) continue;
+                p = Process.GetProcessById(row.Pid);
+                if (p.StartTime != row.Started) { p.Dispose(); continue; }
                 p.Kill();
-                ended++;
+                ending.Add(p);
+            }
+            catch (Win32Exception)
+            {
+                failed++; // access denied
+                p?.Dispose();
             }
             catch (Exception)
             {
-                // Already gone (often because its parent was just ended) or access denied.
+                p?.Dispose(); // already gone, often because its parent was just ended
             }
         }
-        return ended;
+
+        // Kill only starts the end. Wait a moment, so the list that loads next no longer shows them.
+        var deadline = DateTime.Now.AddSeconds(1);
+        foreach (var p in ending)
+            using (p)
+                p.WaitForExit(Math.Max(0, (int)(deadline - DateTime.Now).TotalMilliseconds));
+        return failed;
     }
 
-    static bool IsProtected(Proc p) => p.Started is null || p.Pid == Environment.ProcessId || Critical.Contains(p.Name);
+    static bool IsProtected(Proc p) => !p.CanEnd || p.Pid == Environment.ProcessId || Critical.Contains(p.Name);
 
     static bool IsClaude(Proc p) => p.CommandLine is not null && p.Name.Equals("claude", StringComparison.OrdinalIgnoreCase);
-    static bool IsDesktop(Proc p) => IsClaude(p) && Exe(p.CommandLine!).Contains(@"\WindowsApps\Claude_", StringComparison.OrdinalIgnoreCase);
+
+    // The Store package and the per-user installer put the desktop app here; the Claude Code CLI lives elsewhere.
+    static bool IsDesktop(Proc p) => IsClaude(p) && Exe(p.CommandLine!) is var exe
+        && (exe.Contains(@"\WindowsApps\Claude_", StringComparison.OrdinalIgnoreCase)
+            || exe.Contains(@"\AnthropicClaude\", StringComparison.OrdinalIgnoreCase));
+
     static bool IsCli(Proc p) => IsClaude(p) && !IsDesktop(p);
 
     static string Exe(string cmd) => cmd.StartsWith('"') ? cmd[1..Math.Max(1, cmd.IndexOf('"', 1))] : cmd.Split(' ')[0];
@@ -167,9 +204,8 @@ static class ProcessSource
 
     static Dictionary<int, Proc> Snapshot()
     {
-        var parents = ParentPids();
         var procs = new Dictionary<int, Proc>();
-        var buffer = Marshal.AllocHGlobal(CommandLineBuffer);
+        var buffer = Marshal.AllocHGlobal(QueryBuffer);
         try
         {
             foreach (var p in Process.GetProcesses())
@@ -187,8 +223,9 @@ static class ProcessSource
                         var commit = p.ProcessName.StartsWith("vmmem", StringComparison.OrdinalIgnoreCase)
                             ? Math.Max(p.PrivateMemorySize64, p.WorkingSet64)
                             : p.PrivateMemorySize64;
-                        procs[p.Id] = new(p.Id, parents.GetValueOrDefault(p.Id), p.ProcessName, commit, started,
-                            started is null ? null : CommandLine(p.Id, buffer));
+                        var (parent, commandLine) = started is null ? (0, null) : Query(p.Id, buffer);
+                        procs[p.Id] = new(p.Id, parent, p.ProcessName, commit, started, commandLine,
+                            started is not null && CanTerminate(p.Id));
                     }
                     catch (InvalidOperationException)
                     {
@@ -204,51 +241,34 @@ static class ProcessSource
         return procs;
     }
 
-    static Dictionary<int, int> ParentPids()
+    const int QueryBuffer = 0x10100; // UNICODE_STRING header + its 64 KB maximum
+
+    /// <summary>Parent PID and command line, through one limited-query handle.</summary>
+    static (int Parent, string? CommandLine) Query(int pid, IntPtr buffer)
     {
-        var map = new Dictionary<int, int>();
-        var snapshot = CreateToolhelp32Snapshot(2 /* TH32CS_SNAPPROCESS */, 0);
-        if (snapshot == -1) return map;
-        try
-        {
-            var entry = new ProcessEntry32 { Size = (uint)Marshal.SizeOf<ProcessEntry32>() };
-            for (var ok = Process32FirstW(snapshot, ref entry); ok; ok = Process32NextW(snapshot, ref entry))
-                map[(int)entry.ProcessId] = (int)entry.ParentProcessId;
-        }
-        finally
-        {
-            CloseHandle(snapshot);
-        }
-        return map;
+        using var handle = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
+        if (handle.IsInvalid) return (0, null);
+
+        var parent = NtQueryInformationProcess(handle, 0 /* ProcessBasicInformation */, buffer, Marshal.SizeOf<BasicInformation>(), out _) == 0
+            ? (int)Marshal.PtrToStructure<BasicInformation>(buffer).InheritedFromUniqueProcessId
+            : 0;
+        string? commandLine = null;
+        if (NtQueryInformationProcess(handle, 60 /* ProcessCommandLineInformation */, buffer, QueryBuffer, out _) == 0
+            && Marshal.PtrToStructure<UnicodeString>(buffer) is { Buffer: not 0 } text)
+            commandLine = Marshal.PtrToStringUni(text.Buffer, text.Length / 2);
+        return (parent, commandLine);
     }
 
-    const int CommandLineBuffer = 0x10100; // UNICODE_STRING header + its 64 KB maximum
-
-    static string? CommandLine(int pid, IntPtr buffer)
+    static bool CanTerminate(int pid)
     {
-        var handle = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
-        if (handle == 0) return null;
-        try
-        {
-            if (NtQueryInformationProcess(handle, 60 /* ProcessCommandLineInformation */, buffer, CommandLineBuffer, out _) != 0) return null;
-            var text = Marshal.PtrToStructure<UnicodeString>(buffer);
-            return text.Buffer == 0 ? null : Marshal.PtrToStringUni(text.Buffer, text.Length / 2);
-        }
-        finally
-        {
-            CloseHandle(handle);
-        }
+        using var handle = OpenProcess(0x0001 /* PROCESS_TERMINATE */, false, pid);
+        return !handle.IsInvalid;
     }
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    struct ProcessEntry32
+    [StructLayout(LayoutKind.Sequential)]
+    struct BasicInformation // PROCESS_BASIC_INFORMATION
     {
-        public uint Size, Usage, ProcessId;
-        public IntPtr DefaultHeapId;
-        public uint ModuleId, Threads, ParentProcessId;
-        public int PriorityClassBase;
-        public uint Flags;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string ExeFile;
+        public IntPtr ExitStatus, PebBaseAddress, AffinityMask, BasePriority, UniqueProcessId, InheritedFromUniqueProcessId;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -259,20 +279,8 @@ static class ProcessSource
     }
 
     [DllImport("kernel32.dll")]
-    static extern IntPtr CreateToolhelp32Snapshot(uint flags, uint processId);
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
-    static extern bool Process32FirstW(IntPtr snapshot, ref ProcessEntry32 entry);
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
-    static extern bool Process32NextW(IntPtr snapshot, ref ProcessEntry32 entry);
-
-    [DllImport("kernel32.dll")]
-    static extern IntPtr OpenProcess(uint access, bool inherit, int processId);
-
-    [DllImport("kernel32.dll")]
-    static extern bool CloseHandle(IntPtr handle);
+    static extern SafeProcessHandle OpenProcess(uint access, bool inherit, int processId);
 
     [DllImport("ntdll.dll")]
-    static extern int NtQueryInformationProcess(IntPtr process, int infoClass, IntPtr buffer, int length, out int returned);
+    static extern int NtQueryInformationProcess(SafeProcessHandle process, int infoClass, IntPtr buffer, int length, out int returned);
 }

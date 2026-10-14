@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
-using System.Runtime.InteropServices;
 
 namespace UsageTray;
 
@@ -9,7 +8,7 @@ namespace UsageTray;
 /// (Claude sessions: click opens the session, the chevron shows the processes),
 /// right-click to end the app or one process.
 /// </summary>
-sealed class ProcessForm : Form
+sealed class ProcessForm : Flyout
 {
     // Layout in 96-dpi units.
     const int W = 480, Pad = 12, HeadH = 24, RowH = 20, FootH = 24, Indent = 14, MemW = 52, MaxMembers = 8, PageRows = 15;
@@ -17,49 +16,21 @@ sealed class ProcessForm : Form
     IReadOnlyList<ProcGroup>? _groups;
     string? _error;
     DateTimeOffset? _updated;
+    DateTime _shown;
     int? _open; // root pid of the expanded group
     int _scroll; // index of the first app shown; the mouse wheel moves it
+    int _wheel; // wheel delta not scrolled yet: touchpads send small steps
     Point _anchor; // bottom-right corner to grow from
     Rectangle _footer;
-    bool _busy, _modal;
+    bool _busy, _reload, _modal;
     readonly List<(Rectangle Bounds, ProcGroup Group, ProcRow? Member)> _rows = [];
     readonly ContextMenuStrip _menu = new();
-
-    public ProcessForm()
-    {
-        FormBorderStyle = FormBorderStyle.None;
-        ShowInTaskbar = false;
-        TopMost = true;
-        StartPosition = FormStartPosition.Manual;
-        AutoScaleMode = AutoScaleMode.None;
-        BackColor = Theme.Bg;
-        DoubleBuffered = true;
-        KeyPreview = true;
-    }
-
-    protected override CreateParams CreateParams
-    {
-        get
-        {
-            var cp = base.CreateParams;
-            cp.ClassStyle |= 0x20000; // CS_DROPSHADOW
-            cp.ExStyle |= 0x80;       // WS_EX_TOOLWINDOW: keep out of Alt+Tab
-            return cp;
-        }
-    }
-
-    protected override void OnHandleCreated(EventArgs e)
-    {
-        base.OnHandleCreated(e);
-        var round = 2; // DWMWCP_ROUND (Windows 11)
-        DwmSetWindowAttribute(Handle, 33, ref round, sizeof(int));
-    }
 
     /// <summary>Opens where <paramref name="anchor"/> (the main flyout) is, growing up and left from its corner.</summary>
     public void ShowNear(Rectangle anchor)
     {
         _anchor = new Point(anchor.Right, anchor.Bottom);
-        _scroll = 0;
+        (_groups, _open, _scroll, _shown) = (null, null, 0, DateTime.Now); // no old list while the new one loads
         Relayout();
         Show();
         Activate();
@@ -79,16 +50,24 @@ sealed class ProcessForm : Form
 
     async Task LoadAsync()
     {
-        if (_busy) return;
+        // A request during a load (after End, say) loads again when that one ends.
+        if (_busy) { _reload = true; return; }
         _busy = true;
         try
         {
-            (_groups, _error) = (await Task.Run(() => ProcessSource.Read()), null);
-            _updated = DateTimeOffset.Now;
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
+            do
+            {
+                _reload = false;
+                try
+                {
+                    (_groups, _error) = (await Task.Run(() => ProcessSource.Read()), null);
+                    _updated = DateTimeOffset.Now;
+                }
+                catch (Exception ex)
+                {
+                    _error = ex.Message;
+                }
+            } while (_reload);
         }
         finally
         {
@@ -100,21 +79,26 @@ sealed class ProcessForm : Form
 
     void ScrollBy(int by)
     {
-        _scroll = Math.Clamp(_scroll + by, 0, Math.Max(0, (_groups?.Count ?? 0) - PageRows));
-        Relayout(keepTop: by != 0);
+        var scroll = Math.Clamp(_scroll + by, 0, Math.Max(0, (_groups?.Count ?? 0) - PageRows));
+        if (by != 0 && scroll == _scroll) return;
+        _scroll = scroll;
+        Fit(keepTop: by != 0);
         Invalidate();
     }
 
     protected override void OnMouseWheel(MouseEventArgs e)
     {
-        ScrollBy(-Math.Sign(e.Delta) * 3);
         base.OnMouseWheel(e);
+        _wheel += e.Delta;
+        var notches = _wheel / 120; // WHEEL_DELTA
+        _wheel -= notches * 120;
+        if (notches != 0) ScrollBy(-notches * 3);
     }
 
     protected override void OnDeactivate(EventArgs e)
     {
         base.OnDeactivate(e);
-        if (!_modal) Hide();
+        if (!_modal) HideOnDeactivate();
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -126,25 +110,17 @@ sealed class ProcessForm : Form
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        Cursor = _footer.Contains(e.Location) || RowAt(e.Location) is { Member: null } row && (row.Group.Link is not null || row.Group.Members.Count > 1)
-            ? Cursors.Hand
-            : Cursors.Default;
+        Cursor = ActionAt(e.Location) is null ? Cursors.Default : Cursors.Hand;
         base.OnMouseMove(e);
     }
 
     protected override void OnMouseClick(MouseEventArgs e)
     {
-        var row = RowAt(e.Location);
-        if (e.Button == MouseButtons.Right && row is { } target) ShowMenu(target.Group, target.Member, e.Location);
-        else if (e.Button == MouseButtons.Left && row is { Member: null, Group: { Link: { } link } } && e.X > Px(Pad + Indent)) Open(link);
-        else if (e.Button == MouseButtons.Left && row is { Member: null, Group: { Members.Count: > 1 } group })
-        {
-            _open = _open == group.RootPid ? null : group.RootPid;
-            Relayout(keepTop: true);
-            Invalidate();
-        }
-        else if (e.Button == MouseButtons.Left && _footer.Contains(e.Location)) _ = LoadAsync();
         base.OnMouseClick(e);
+        // The second click of a double-click on the System section lands here.
+        if ((DateTime.Now - _shown).TotalMilliseconds < SystemInformation.DoubleClickTime) return;
+        if (e.Button == MouseButtons.Right && RowAt(e.Location) is { } row) ShowMenu(row.Group, row.Member, e.Location);
+        else if (e.Button == MouseButtons.Left) ActionAt(e.Location)?.Invoke();
     }
 
     (ProcGroup Group, ProcRow? Member)? RowAt(Point p)
@@ -154,13 +130,32 @@ sealed class ProcessForm : Form
         return null;
     }
 
+    /// <summary>What a left click at <paramref name="p"/> does; null for nothing.</summary>
+    Action? ActionAt(Point p)
+    {
+        if (_footer.Contains(p)) return () => _ = LoadAsync();
+        if (RowAt(p) is not { Member: null, Group: var group }) return null;
+        var expandable = group.Members.Count > 1;
+        // A session row opens the session; its chevron shows the processes.
+        if (group.Link is { } link && (!expandable || p.X > Px(Pad + Indent))) return () => Open(link);
+        if (expandable) return () => Toggle(group);
+        return null;
+    }
+
+    void Toggle(ProcGroup group)
+    {
+        _open = _open == group.RootPid ? null : group.RootPid;
+        Fit(keepTop: true);
+        Invalidate();
+    }
+
     void ShowMenu(ProcGroup group, ProcRow? member, Point at)
     {
         _menu.Items.Clear();
         if (member is not null)
         {
             var name = $"{member.Name} (pid {member.Pid})";
-            _menu.Items.Add(new ToolStripMenuItem(L.T($"End {name}", $"{name} beëindigen"), null, (_, _) => End(name, [member]))
+            _menu.Items.Add(new ToolStripMenuItem(NoMnemonic(L.T($"End {name}", $"{name} beëindigen")), null, (_, _) => End(name, [member]))
             {
                 Enabled = !member.Protected,
             });
@@ -173,14 +168,17 @@ sealed class ProcessForm : Form
                 _menu.Items.Add(new ToolStripSeparator());
             }
             var all = group.Members.Count > 1 ? L.T($" and its {group.Members.Count} processes", $" en de {group.Members.Count} processen") : "";
-            _menu.Items.Add(new ToolStripMenuItem(L.T($"End “{group.Title}”{all}", $"“{group.Title}”{all} beëindigen"), null,
-                (_, _) => End($"“{group.Title}”", group.Members))
+            _menu.Items.Add(new ToolStripMenuItem(NoMnemonic(L.T($"End “{group.Title}”{all}", $"“{group.Title}”{all} beëindigen")), null,
+                (_, _) => End($"“{group.Title}”", group.Members, group.Sessions))
             {
                 Enabled = !group.Protected,
             });
         }
         _menu.Show(this, at);
     }
+
+    // Menu items read '&' as a keyboard-shortcut marker.
+    static string NoMnemonic(string text) => text.Replace("&", "&&");
 
     void Open(string link)
     {
@@ -195,18 +193,25 @@ sealed class ProcessForm : Form
         }
     }
 
-    void End(string what, IReadOnlyList<ProcRow> rows)
+    void End(string what, IReadOnlyList<ProcRow> rows, int sessions = 0)
     {
-        _modal = true; // the dialog takes activation; stay open behind it
+        _modal = true; // the dialogs take activation; stay open behind them
         try
         {
             var size = Fmt.Bytes(rows.Sum(r => r.Commit));
             var ask = L.T(
                 $"End {what}?\n\n{rows.Count} process(es), {size}. Unsaved work in them is lost.",
                 $"{what} beëindigen?\n\n{rows.Count} proces(sen), {size}. Niet-opgeslagen werk gaat verloren.");
+            if (sessions > 0)
+                ask += "\n" + L.T(
+                    $"{sessions} Claude Code session(s) started from it can end too.",
+                    $"{sessions} Claude Code-sessie(s) die het startte kunnen ook stoppen.");
             if (MessageBox.Show(this, ask, "UsageTray", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
                 return;
-            ProcessSource.End(rows);
+            if (ProcessSource.End(rows) is var failed and > 0)
+                MessageBox.Show(this,
+                    L.T($"{failed} process(es) could not be ended: access denied.", $"{failed} proces(sen) niet beëindigd: geen toegang."),
+                    "UsageTray", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         finally
         {
@@ -216,23 +221,19 @@ sealed class ProcessForm : Form
         _ = LoadAsync();
     }
 
-    protected override void OnDpiChanged(DpiChangedEventArgs e)
-    {
-        base.OnDpiChanged(e);
-        Relayout();
-    }
-
-    float DpiScale => DeviceDpi / 96f;
-    int Px(float v) => (int)Math.Round(v * DpiScale);
-
     IEnumerable<ProcRow> Largest(ProcGroup group) => group.Members.OrderByDescending(m => m.Commit).Take(MaxMembers);
+
+    // A group that is down to one process has nothing to expand.
+    bool IsOpen(ProcGroup group) => _open == group.RootPid && group.Members.Count > 1;
 
     IEnumerable<ProcGroup> Page => _groups!.Skip(_scroll).Take(PageRows);
 
+    protected override void Relayout() => Fit(keepTop: false);
+
     /// <param name="keepTop">Grow downward, so the row under the cursor stays where it is.</param>
-    void Relayout(bool keepTop = false)
+    void Fit(bool keepTop)
     {
-        var rows = _groups is null ? 1 : Page.Sum(g => 1 + (_open == g.RootPid ? Largest(g).Count() : 0));
+        var rows = _groups is null ? 1 : Page.Sum(g => 1 + (IsOpen(g) ? Largest(g).Count() : 0));
         Size = new Size(Px(W), Px(Pad + HeadH + rows * RowH + 4 + FootH + 4));
 
         var area = Screen.FromPoint(_anchor).WorkingArea;
@@ -273,7 +274,7 @@ sealed class ProcessForm : Form
         }
         else foreach (var group in Page)
         {
-            var open = _open == group.RootPid;
+            var open = IsOpen(group);
             _rows.Add((new Rectangle(0, y, Width, Px(RowH)), group, null));
             var mark = group.Members.Count > 1 ? (open ? "▾" : "▸") : "";
             DrawRow(g, mark, group.Title, Theme.Text, group.Detail, group.Commit, left, right, y, text, small, monoBold);
@@ -314,20 +315,9 @@ sealed class ProcessForm : Form
         Label(g, Fmt.Bytes(commit), monoBold, Theme.Text, new Rectangle(memX, y, Px(MemW), h), right: true);
     }
 
-    static void Label(Graphics g, string text, Font font, Color color, Rectangle bounds, bool right = false)
-    {
-        var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding
-                  | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix
-                  | (right ? TextFormatFlags.Right : TextFormatFlags.Left);
-        TextRenderer.DrawText(g, text, font, bounds, color, flags);
-    }
-
     protected override void Dispose(bool disposing)
     {
         if (disposing) _menu.Dispose();
         base.Dispose(disposing);
     }
-
-    [DllImport("dwmapi.dll")]
-    static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 }

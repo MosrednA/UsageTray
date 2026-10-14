@@ -31,8 +31,7 @@ sealed record ProviderStatus(
     string? Plan = null,
     string? Note = null,
     string? Error = null,
-    bool NeedsLogin = false,
-    bool Drill = false); // click opens a detail flyout
+    bool NeedsLogin = false);
 
 static class Fmt
 {

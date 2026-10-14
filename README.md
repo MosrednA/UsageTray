@@ -16,13 +16,14 @@
 </p>
 
 <p align="center">
-  <img src="docs/flyout.png" alt="UsageTray flyout showing Codex and Claude limits" width="440">
+  <img src="docs/flyout.png" alt="UsageTray flyout showing Codex and Claude limits and memory use" width="440">
 </p>
 
 A tiny native Windows tray app. One glance at the icon tells you if you're burning through a limit; one click shows every window with a pace marker, so you know whether to slow down — or that you've got room to spare.
 
 - **Pace, not just percentage.** A white tick marks where you'd be with perfectly even usage. Past the tick means you're going too fast.
 - **Codex + Claude in one place.** Weekly and 5-hour windows, model-specific limits, Codex credits and free resets.
+- **Memory too.** RAM and commit charge under the limits. Click them for the apps that use the most memory, with Claude Code sessions by name. Open a session in the Claude desktop app, or end an app, from there.
 - **No extra logins.** Uses the sign-ins of the official Codex and Claude Code CLIs. No API keys.
 - **Lightweight.** Native WinForms, no dependencies, no telemetry. Refreshes every 2 minutes (Claude at most every 5).
 
@@ -80,6 +81,8 @@ Hover the icon for a one-line summary of everything.
 | Right-click | Refresh · Sign in to Codex / Claude · Icon style · Start with Windows · Quit |
 | `F5` / `R`, or click the footer | Refresh now |
 | `Esc`, or click elsewhere | Close |
+| Click *System* in the flyout | Memory per app: click a row for its processes, right-click to end the app or one process |
+| Click a Claude Code session there | Open it in the Claude desktop app (its chevron shows the processes) |
 
 The UI is in English, or Dutch when Windows is set to Dutch. Force a language with `USAGETRAY_LANG=en` or `nl`.
 
@@ -90,12 +93,15 @@ The UI is in English, or Dutch when Windows is set to Dutch. Force a language wi
 | **Codex** | The official `codex app-server` (`account/rateLimits/read`), run locally | Live, using Codex's own login. Also shows credits and available free resets. If the CLI isn't on your `PATH`, it falls back to the last snapshot in `~/.codex/sessions` (labeled *as of 14:50*). |
 | **Claude** | `api.anthropic.com/api/oauth/usage`, using the Claude Code CLI login in `~/.claude/.credentials.json` | Same data as `/usage` in Claude Code. Expired access tokens are refreshed and written back atomically, so the CLI keeps working. The endpoint is rate limited, so it's polled at most every 5 minutes; on a 429 UsageTray backs off (up to 30 min) and keeps showing the last numbers (labeled *as of 14:50*). |
 
+| **System** | `GlobalMemoryStatusEx`, and the process list for the memory view | Apps are sorted by commit (private bytes): idle apps are paged out, so their working set looks small. Claude Code session names come from `~/.claude/sessions/<pid>.json`, the file Claude Code keeps per running session. |
+
 A provider that isn't installed is simply hidden.
 
 ### Privacy & security
 
 - **Runs** `codex app-server` locally for a second on each refresh; Codex handles its own auth and network.
-- **Reads** the Claude Code credentials file, and your Codex session logs as a fallback.
+- **Reads** the Claude Code credentials file, and your Codex session logs as a fallback. When you open the memory view, it also reads the process list with command lines and `~/.claude/sessions`.
+- **Ends** a process only when you pick *End* in the memory view and confirm. System processes, and processes it has no rights to end, are greyed out.
 - **Writes** only refreshed Claude tokens back to that same credentials file, plus the optional autostart entry (`HKCU\…\Run`).
 - **Talks to** `platform.claude.com` (token refresh) and `api.anthropic.com` (usage) itself. Nothing else. No telemetry, no analytics.
 
@@ -114,6 +120,8 @@ dotnet run -c Release
 | `UsageTray --snapshot out.png` | Render the flyout with your live data to a PNG |
 | `UsageTray --render-assets` | Regenerate `docs/*.png` and `assets/app.ico` from demo data |
 | `UsageTray --preview-icons out.png` | All icon styles at 16–32 px on dark and light taskbars, magnified |
+| `UsageTray --procs out.png` | Render the memory view with your live data to a PNG |
+| `UsageTray --procs` | Open only the memory view, at the cursor |
 
 Tag a commit `v*` to build and publish a release automatically.
 
@@ -124,6 +132,11 @@ Tag a commit `v*` to build and publish a release automatically.
 |---|---|
 | `TrayApp.cs` | Tray icon, menu, refresh timer, sign-in, autostart |
 | `PopupForm.cs` | The flyout — custom-drawn, DPI-aware |
+| `ProcessForm.cs` | The memory view — apps by memory, open a session, end a process |
+| `Flyout.cs` | Window base shared by both flyouts |
+| `SystemSource.cs` | RAM and commit charge |
+| `ProcessSource.cs` | Process snapshot, grouping per app, ending processes |
+| `ClaudeSessions.cs` | Claude Code session names from `~/.claude/sessions` |
 | `CodexSource.cs` | Codex via `codex app-server`, with session-log fallback |
 | `ClaudeSource.cs` | OAuth token refresh + usage endpoint |
 | `Models.cs` | Usage windows, pace math, formatting |
@@ -136,6 +149,7 @@ Tag a commit `v*` to build and publish a release automatically.
 ## Caveats
 
 - The Claude usage endpoint is **undocumented** and may change without notice. If Claude stops showing up after an update, that's the likely cause.
+- `~/.claude/sessions` and the `claude://` link that opens a session are **undocumented** too. If they change, sessions show without a name or link; the rest of the memory view keeps working.
 - `codex app-server` is marked *experimental* by the Codex CLI. If it changes, UsageTray falls back to the session logs until it's updated.
 - UsageTray reuses the Claude Code CLI login rather than logging in itself. The Claude desktop app keeps its own login, which UsageTray can't access.
 - UsageTray is an independent project and is **not affiliated with or endorsed by OpenAI or Anthropic**. Codex and Claude are trademarks of their respective owners.

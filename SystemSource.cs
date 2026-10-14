@@ -17,7 +17,7 @@ static class SystemSource
         [
             Row("ram", m.TotalPhys - m.AvailPhys, m.TotalPhys),
             Row("commit", m.TotalPageFile - m.AvailPageFile, m.TotalPageFile),
-        ], Note: L.T("click for processes", "klik voor processen"), Drill: true);
+        ], Note: L.T("click for processes", "klik voor processen"));
     }
 
     static UsageWindow Row(string label, ulong used, ulong total)
