@@ -11,7 +11,7 @@ static class DocAssets
         Directory.CreateDirectory(assetsDir);
 
         using (var popup = new PopupForm())
-            popup.RenderTo(Demo(), Path.Combine(docsDir, "flyout.png"));
+            popup.RenderTo(Demo(), Path.Combine(docsDir, "flyout.png"), DemoSystem());
         using (var logo = IconRenderer.Logo(256))
             logo.Save(Path.Combine(docsDir, "logo.png"), ImageFormat.Png);
         File.Delete(Path.Combine(docsDir, "tray-icons.png"));
@@ -37,6 +37,12 @@ static class DocAssets
             ], "max"),
         ];
     }
+
+    static ProviderStatus DemoSystem() => new(L.T("System", "Systeem"),
+    [
+        new("ram", 71, TimeSpan.Zero, null, "23/32G"),
+        new("commit", 58, TimeSpan.Zero, null, "37/64G"),
+    ], Note: L.T("click for processes", "klik voor processen"));
 
     static readonly Color DarkTaskbar = Color.FromArgb(0x20, 0x20, 0x20);
     static readonly Color LightTaskbar = Color.FromArgb(0xF3, 0xF3, 0xF3);

@@ -12,7 +12,24 @@ static class Program
                 ApplicationConfiguration.Initialize();
                 var data = new[] { CodexSource.ReadAsync().GetAwaiter().GetResult(), ClaudeSource.ReadAsync().GetAwaiter().GetResult() };
                 using (var popup = new PopupForm())
-                    popup.RenderTo(data.OfType<ProviderStatus>().ToList(), path);
+                    popup.RenderTo(data.OfType<ProviderStatus>().ToList(), path, SystemSource.Read());
+                return;
+
+            case ["--procs", var path]:
+                ApplicationConfiguration.Initialize();
+                using (var procs = new ProcessForm())
+                    procs.RenderTo(ProcessSource.Read(), path);
+                return;
+
+            // The memory flyout on its own, at the cursor; exits when it closes.
+            case ["--procs"]:
+                ApplicationConfiguration.Initialize();
+                using (var procs = new ProcessForm())
+                {
+                    procs.VisibleChanged += (_, _) => { if (!procs.Visible) Application.Exit(); };
+                    procs.ShowNear(new Rectangle(Cursor.Position, Size.Empty));
+                    Application.Run();
+                }
                 return;
 
             case ["--preview-icons", var path]:

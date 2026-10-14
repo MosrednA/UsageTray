@@ -1,5 +1,4 @@
 using System.Drawing.Drawing2D;
-using System.Runtime.InteropServices;
 
 namespace UsageTray;
 
@@ -7,57 +6,33 @@ namespace UsageTray;
 /// Borderless flyout above the tray. Per window: label, bar with a pace tick,
 /// used %, distance from even pace, time until reset.
 /// </summary>
-sealed class PopupForm : Form
+sealed class PopupForm : Flyout
 {
     // Layout in 96-dpi units.
     const int W = 340, Pad = 12, HeadH = 24, RowH = 20, GapH = 8, FootH = 24;
     const int LabelW = 46, PctW = 40, DeltaW = 36, ResetW = 56;
 
     IReadOnlyList<ProviderStatus> _data = [];
+    ProviderStatus? _system; // RAM and commit, below the limits; a click opens the memory flyout
     DateTimeOffset? _updated;
-    Rectangle _footer;
+    Rectangle _footer, _systemArea;
     readonly List<(Rectangle Bounds, string Provider)> _logins = [];
     readonly System.Windows.Forms.Timer _tick = new() { Interval = 30_000 };
 
     public event Action? RefreshRequested;
     public event Action<string>? LoginRequested;
-    public DateTime LastHidden { get; private set; }
+    public event Action? SystemClicked;
 
     public PopupForm()
     {
-        FormBorderStyle = FormBorderStyle.None;
-        ShowInTaskbar = false;
-        TopMost = true;
-        StartPosition = FormStartPosition.Manual;
-        AutoScaleMode = AutoScaleMode.None;
-        BackColor = Theme.Bg;
-        DoubleBuffered = true;
-        KeyPreview = true;
         _tick.Tick += (_, _) => Invalidate();
     }
 
-    protected override CreateParams CreateParams
-    {
-        get
-        {
-            var cp = base.CreateParams;
-            cp.ClassStyle |= 0x20000; // CS_DROPSHADOW
-            cp.ExStyle |= 0x80;       // WS_EX_TOOLWINDOW: keep out of Alt+Tab
-            return cp;
-        }
-    }
-
-    protected override void OnHandleCreated(EventArgs e)
-    {
-        base.OnHandleCreated(e);
-        var round = 2; // DWMWCP_ROUND (Windows 11)
-        DwmSetWindowAttribute(Handle, 33, ref round, sizeof(int));
-    }
-
-    public void SetData(IReadOnlyList<ProviderStatus> data, DateTimeOffset? updated)
+    public void SetData(IReadOnlyList<ProviderStatus> data, DateTimeOffset? updated, ProviderStatus? system = null)
     {
         _data = data;
         _updated = updated;
+        _system = system;
         if (!Visible) return;
         Relayout();
         Invalidate();
@@ -78,9 +53,10 @@ sealed class PopupForm : Form
     }
 
     /// <summary>Renders the flyout to a PNG without showing it (docs and layout checks).</summary>
-    public void RenderTo(IReadOnlyList<ProviderStatus> data, string path)
+    public void RenderTo(IReadOnlyList<ProviderStatus> data, string path, ProviderStatus? system = null)
     {
         _data = data;
+        _system = system;
         _updated = DateTimeOffset.Now;
         Relayout();
         using var bmp = new Bitmap(Width, Height);
@@ -91,8 +67,7 @@ sealed class PopupForm : Form
     protected override void OnDeactivate(EventArgs e)
     {
         base.OnDeactivate(e);
-        Hide();
-        LastHidden = DateTime.Now;
+        HideOnDeactivate();
         _tick.Stop();
     }
 
@@ -105,34 +80,28 @@ sealed class PopupForm : Form
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        Cursor = LoginAt(e.Location) is not null || _footer.Contains(e.Location) ? Cursors.Hand : Cursors.Default;
+        Cursor = LoginAt(e.Location) is not null || _footer.Contains(e.Location) || _systemArea.Contains(e.Location) ? Cursors.Hand : Cursors.Default;
         base.OnMouseMove(e);
     }
 
     protected override void OnMouseClick(MouseEventArgs e)
     {
         if (LoginAt(e.Location) is { } provider) { Hide(); LoginRequested?.Invoke(provider); }
+        else if (_systemArea.Contains(e.Location)) SystemClicked?.Invoke();
         else if (_footer.Contains(e.Location)) RefreshRequested?.Invoke();
         base.OnMouseClick(e);
     }
 
     string? LoginAt(Point p) => _logins.FirstOrDefault(l => l.Bounds.Contains(p)).Provider;
 
-    protected override void OnDpiChanged(DpiChangedEventArgs e)
-    {
-        base.OnDpiChanged(e);
-        Relayout();
-    }
+    IEnumerable<ProviderStatus> Sections => _system is null ? _data : _data.Append(_system);
 
-    float DpiScale => DeviceDpi / 96f;
-    int Px(float v) => (int)Math.Round(v * DpiScale);
-
-    void Relayout()
+    protected override void Relayout()
     {
-        var body = _data.Count == 0
-            ? HeadH
-            : _data.Sum(p => HeadH + p.Windows.Count * RowH) + GapH * (_data.Count - 1);
-        Size = new Size(Px(W), Px(Pad + body + FootH + 4));
+        // The "loading…" / none-found line takes a section's place when no provider is there.
+        var heights = Sections.Select(p => HeadH + p.Windows.Count * RowH).ToList();
+        if (_data.Count == 0) heights.Insert(0, HeadH);
+        Size = new Size(Px(W), Px(Pad + heights.Sum() + GapH * (heights.Count - 1) + FootH + 4));
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -147,6 +116,7 @@ sealed class PopupForm : Form
 
         int left = Px(Pad), right = Width - Px(Pad), y = Px(Pad);
         _logins.Clear();
+        _systemArea = Rectangle.Empty;
 
         if (_data.Count == 0)
         {
@@ -154,10 +124,10 @@ sealed class PopupForm : Form
                 ? L.T("loading…", "laden…")
                 : L.T("No Codex or Claude Code found", "Geen Codex of Claude Code gevonden");
             Label(g, empty, small, Theme.Muted, new Rectangle(left, y, right - left, Px(HeadH)));
-            y += Px(HeadH);
+            y += Px(HeadH + GapH);
         }
 
-        foreach (var p in _data)
+        foreach (var p in Sections)
         {
             var head = new Rectangle(left, y, right - left, Px(HeadH));
             Label(g, p.Name, title, Theme.Text, head);
@@ -176,9 +146,10 @@ sealed class PopupForm : Form
                 DrawRow(g, w, mono, monoBold, left, right, y);
                 y += Px(RowH);
             }
+            if (p == _system) _systemArea = Rectangle.FromLTRB(0, head.Top, Width, y);
             y += Px(GapH);
         }
-        if (_data.Count > 0) y -= Px(GapH);
+        y -= Px(GapH);
 
         y += Px(4);
         using (var line = new Pen(Theme.Track, 1))
@@ -237,16 +208,8 @@ sealed class PopupForm : Form
 
         Label(g, $"{w.UsedPct:0}%", monoBold, Theme.Text, new Rectangle(pctX, y, Px(PctW), rowH), right: true);
         Label(g, Fmt.Delta(w.Delta), mono, w.Delta > 1 ? color : Theme.Ok, new Rectangle(deltaX, y, Px(DeltaW), rowH), right: true);
-        var reset = w.ResetsAt is { } r ? Fmt.Span(r - DateTimeOffset.Now) : "—";
+        var reset = w.Detail ?? (w.ResetsAt is { } r ? Fmt.Span(r - DateTimeOffset.Now) : "—");
         Label(g, reset, mono, Theme.Muted, new Rectangle(resetX, y, Px(ResetW), rowH), right: true);
-    }
-
-    static void Label(Graphics g, string text, Font font, Color color, Rectangle bounds, bool right = false)
-    {
-        var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding
-                  | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix
-                  | (right ? TextFormatFlags.Right : TextFormatFlags.Left);
-        TextRenderer.DrawText(g, text, font, bounds, color, flags);
     }
 
     protected override void Dispose(bool disposing)
@@ -254,7 +217,4 @@ sealed class PopupForm : Form
         if (disposing) _tick.Dispose();
         base.Dispose(disposing);
     }
-
-    [DllImport("dwmapi.dll")]
-    static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 }
