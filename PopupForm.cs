@@ -15,6 +15,7 @@ sealed class PopupForm : Flyout
     IReadOnlyList<ProviderStatus> _data = [];
     ProviderStatus? _system; // RAM and commit, below the limits; a click opens the memory flyout
     DateTimeOffset? _updated;
+    Point _trayPoint;
     Rectangle _footer, _systemArea;
     readonly List<(Rectangle Bounds, string Provider)> _logins = [];
     readonly System.Windows.Forms.Timer _tick = new() { Interval = 30_000 };
@@ -40,16 +41,21 @@ sealed class PopupForm : Flyout
 
     public void ShowNearTray()
     {
+        _trayPoint = Cursor.Position;
         Relayout();
-        var cursor = Cursor.Position;
-        var area = Screen.FromPoint(cursor).WorkingArea;
-        var margin = Px(10);
-        var x = Math.Clamp(cursor.X - Width / 2, area.Left + margin, area.Right - Width - margin);
-        var y = cursor.Y <= area.Top ? area.Top + margin : area.Bottom - Height - margin;
-        Location = new Point(x, y);
+        PositionNearTray();
         Show();
         Activate();
         _tick.Start();
+    }
+
+    void PositionNearTray()
+    {
+        var area = AvailableArea(Screen.FromPoint(_trayPoint));
+        var margin = Px(10);
+        var x = Math.Clamp(_trayPoint.X - Width / 2, area.Left + margin, Math.Max(area.Left + margin, area.Right - Width - margin));
+        var y = _trayPoint.Y <= area.Top ? area.Top + margin : area.Bottom - Height - margin;
+        Location = new Point(x, y);
     }
 
     /// <summary>Renders the flyout to a PNG without showing it (docs and layout checks).</summary>
@@ -102,6 +108,7 @@ sealed class PopupForm : Flyout
         var heights = Sections.Select(p => HeadH + p.Windows.Count * RowH).ToList();
         if (_data.Count == 0) heights.Insert(0, HeadH);
         Size = new Size(Px(W), Px(Pad + heights.Sum() + GapH * (heights.Count - 1) + FootH + 4));
+        if (Visible) PositionNearTray();
     }
 
     protected override void OnPaint(PaintEventArgs e)

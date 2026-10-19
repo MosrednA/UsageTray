@@ -68,6 +68,50 @@ abstract class Flyout : Form
     protected float DpiScale => DeviceDpi / 96f;
     protected int Px(float v) => (int)Math.Round(v * DpiScale);
 
+    /// <summary>Keep flyouts clear of an autohide taskbar, which WorkingArea does not reserve.</summary>
+    protected static Rectangle AvailableArea(Screen screen)
+    {
+        var area = screen.WorkingArea;
+        var bounds = screen.Bounds;
+        for (uint edge = 0; edge < 4; edge++)
+        {
+            var data = new AppBarData
+            {
+                Size = (uint)Marshal.SizeOf<AppBarData>(),
+                Edge = edge,
+                Rect = new NativeRect { Left = bounds.Left, Top = bounds.Top, Right = bounds.Right, Bottom = bounds.Bottom },
+            };
+            var taskbar = SHAppBarMessage(0xB /* ABM_GETAUTOHIDEBAREX */, ref data);
+            if (taskbar == 0 || !GetWindowRect(taskbar, out var rect)) continue;
+
+            // Its position moves offscreen when hidden; its width/height still gives the full thickness.
+            area = edge switch
+            {
+                0 => Rectangle.FromLTRB(Math.Max(area.Left, bounds.Left + rect.Right - rect.Left), area.Top, area.Right, area.Bottom),
+                1 => Rectangle.FromLTRB(area.Left, Math.Max(area.Top, bounds.Top + rect.Bottom - rect.Top), area.Right, area.Bottom),
+                2 => Rectangle.FromLTRB(area.Left, area.Top, Math.Min(area.Right, bounds.Right - rect.Right + rect.Left), area.Bottom),
+                _ => Rectangle.FromLTRB(area.Left, area.Top, area.Right, Math.Min(area.Bottom, bounds.Bottom - rect.Bottom + rect.Top)),
+            };
+        }
+        return area;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct NativeRect
+    {
+        public int Left, Top, Right, Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct AppBarData
+    {
+        public uint Size;
+        public nint Window;
+        public uint CallbackMessage, Edge;
+        public NativeRect Rect;
+        public nint Param;
+    }
+
     protected static void Label(Graphics g, string text, Font font, Color color, Rectangle bounds, bool right = false)
     {
         var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding
@@ -78,4 +122,11 @@ abstract class Flyout : Form
 
     [DllImport("dwmapi.dll")]
     static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    [DllImport("shell32.dll")]
+    static extern nint SHAppBarMessage(uint message, ref AppBarData data);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool GetWindowRect(nint window, out NativeRect rect);
 }

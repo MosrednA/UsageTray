@@ -236,7 +236,7 @@ sealed class ProcessForm : Flyout
         var rows = _groups is null ? 1 : Page.Sum(g => 1 + (IsOpen(g) ? Largest(g).Count() : 0));
         Size = new Size(Px(W), Px(Pad + HeadH + rows * RowH + 4 + FootH + 4));
 
-        var area = Screen.FromPoint(_anchor).WorkingArea;
+        var area = AvailableArea(Screen.FromPoint(_anchor));
         var margin = Px(10);
         var top = keepTop ? Math.Min(Top, area.Bottom - margin - Height) : Math.Min(_anchor.Y, area.Bottom - margin) - Height;
         Location = new Point(

@@ -84,6 +84,8 @@ Hover the icon for a one-line summary of everything.
 | Click *System* in the flyout | Memory per app: click a row for its processes, right-click to end the app or one process |
 | Click a Claude Code session there | Open it in the Claude desktop app (its chevron shows the processes) |
 
+Both flyouts leave room for the taskbar, including when **Automatically hide the taskbar** is enabled. The limits flyout keeps that clearance when a refresh changes its height.
+
 The UI is in English, or Dutch when Windows is set to Dutch. Force a language with `USAGETRAY_LANG=en` or `nl`.
 
 ## Where the numbers come from
