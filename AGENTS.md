@@ -10,6 +10,10 @@ build.
 - `dotnet run -c Release`. Check UI changes without clicking through the tray:
   `UsageTray --snapshot out.png` (live data), `--procs out.png` (memory view) and
   `--preview-icons out.png`.
+- An agent's shell runs inside the Claude app's job object, so a tray started from it with
+  `Start-Process` goes down when the Claude app restarts or updates. Restart the
+  user's tray outside it: `Invoke-CimMethod Win32_Process -MethodName Create -Arguments
+  @{CommandLine='"<path>\UsageTray.exe"'}`.
 - `UsageTray --render-assets` regenerates `docs/*.png` and `assets/app.ico` from demo data. Use it
   for README images, never screenshots with real numbers.
 - CI (`.github/workflows/ci.yml`) builds every push.
