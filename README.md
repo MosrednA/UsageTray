@@ -71,6 +71,8 @@ Pick a style via right-click → **Icon**. All three follow the same colors and 
 | **Bars** | <img src="docs/icon-bars.png" alt="Bars icon" height="48"> | Codex (left) and Claude (right) side by side, each with a pace tick |
 | **Classic** | <img src="docs/icon-classic.png" alt="Classic icon" height="48"> | The window most at risk as a colored tile |
 
+By default the icon shows whichever window is most at risk, so it can switch between 5-hour and weekly. To keep it on one, pick right-click → **Icon shows** → *5-hour window* or *Weekly window* (weekly includes the model-specific weekly limits).
+
 Hover the icon for a one-line summary of everything.
 
 > **Tip:** a 5-hour window only starts when you send your first message, so early on you'll almost always be "ahead of pace". For 5h, watch the percentage; for 7d, the pace is what matters.
@@ -78,7 +80,7 @@ Hover the icon for a one-line summary of everything.
 | Action | |
 |---|---|
 | Click the icon | Open / close the flyout |
-| Right-click | Refresh · Sign in to Codex / Claude · Icon style · Start with Windows · Quit |
+| Right-click | Refresh · Sign in to Codex / Claude · Icon style · Icon shows · Start with Windows · Quit |
 | `F5` / `R`, or click the footer | Refresh now |
 | `Esc`, or click elsewhere | Close |
 | Click *System* in the flyout | Memory per app: click a row for its processes, right-click to end the app or one process |
