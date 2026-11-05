@@ -12,6 +12,7 @@ sealed class TrayApp : ApplicationContext
     readonly NotifyIcon _tray = new();
     readonly System.Windows.Forms.Timer _timer = new() { Interval = (int)RefreshEvery.TotalMilliseconds };
     readonly ToolStripMenuItem _codexLogin, _claudeLogin;
+    ClaudeLoginForm? _claudeLoginForm;
     Bitmap? _check;
     IReadOnlyList<ProviderStatus> _data = [];
     DateTimeOffset? _updated;
@@ -108,23 +109,45 @@ sealed class TrayApp : ApplicationContext
         }
     }
 
-    /// <summary>Runs the provider's official CLI login in a console window, then refreshes.</summary>
+    /// <summary>Runs the provider's official CLI login, then refreshes.</summary>
     async Task LoginAsync(string provider)
     {
-        var command = provider == "Codex" ? "codex login" : "claude auth login";
         try
         {
-            using var login = Process.Start(new ProcessStartInfo("cmd.exe", $"/c title {provider} sign-in & {command} || pause")
-            {
-                UseShellExecute = true,
-            });
-            if (login is not null) await login.WaitForExitAsync();
+            await (provider == "Codex" ? LoginToCodexAsync() : LoginToClaudeAsync());
         }
         catch (Exception ex)
         {
             _tray.ShowBalloonTip(5000, "UsageTray", ex.Message, ToolTipIcon.Error);
         }
         await RefreshAsync();
+    }
+
+    static async Task LoginToCodexAsync()
+    {
+        using var login = Process.Start(new ProcessStartInfo("cmd.exe", "/c title Codex sign-in & codex login || pause")
+        {
+            UseShellExecute = true,
+        });
+        if (login is not null) await login.WaitForExitAsync();
+    }
+
+    async Task LoginToClaudeAsync()
+    {
+        if (_claudeLoginForm is not null)
+        {
+            _claudeLoginForm.Activate();
+            return;
+        }
+
+        var closed = new TaskCompletionSource();
+        using var form = new ClaudeLoginForm();
+        form.FormClosed += (_, _) => closed.SetResult();
+        _claudeLoginForm = form;
+        form.Show();
+        form.Activate();
+        await closed.Task;
+        _claudeLoginForm = null;
     }
 
     void UpdateTray()

@@ -8,8 +8,9 @@ build.
 ## Run and verify
 
 - `dotnet run -c Release`. Check UI changes without clicking through the tray:
-  `UsageTray --snapshot out.png` (live data), `--procs out.png` (memory view) and
-  `--preview-icons out.png`.
+  `UsageTray --snapshot out.png` (live data), `--procs out.png` (memory view),
+  `--preview-icons out.png` and `--claude-login` (the sign-in window; set `CLAUDE_CONFIG_DIR` to a
+  temp folder and `BROWSER` to a no-op exe to test it without touching the real login).
 - An agent's shell runs inside the Claude app's job object, so a tray started from it with
   `Start-Process` goes down when the Claude app restarts or updates. Restart the
   user's tray outside it: `Invoke-CimMethod Win32_Process -MethodName Create -Arguments
@@ -31,4 +32,7 @@ build.
 - The Claude usage endpoint, `~/.claude/sessions` and `codex app-server` are undocumented or
   experimental. Keep the fallbacks: the last snapshot, back-off on 429, and at most one Claude poll
   per five minutes.
+- `claude auth login` puts a console in raw mode (no echo, no console Ctrl+V), so a pasted code looks
+  lost and a stray Ctrl+V reports "Invalid code". That is why `ClaudeLoginForm` runs it with pipes:
+  it writes the code to stdin as one line and needs only the exit code and stderr.
 - UI strings live in `L.cs` in English and Dutch; add both.

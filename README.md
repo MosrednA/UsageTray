@@ -41,7 +41,7 @@ Then:
 
 1. **Keep the icon visible** — drag it from the `^` overflow onto the taskbar (or *Taskbar settings → Other system tray icons → UsageTray*).
 2. **Start with Windows** — right-click the icon and tick it.
-3. **Signed out?** Click the red message in the flyout (or right-click → *Sign in to Codex…* / *Sign in to Claude…*). This runs the official `codex login` or `claude auth login`.
+3. **Signed out?** Click the red message in the flyout (or right-click → *Sign in to Codex…* / *Sign in to Claude…*). This runs the official `codex login` in a console, or `claude auth login` behind a small window where you can paste the code if the browser shows one.
 
 ## Reading it
 

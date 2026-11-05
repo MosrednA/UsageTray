@@ -32,6 +32,12 @@ static class Program
                 }
                 return;
 
+            // The Claude sign-in window on its own; exits when it closes.
+            case ["--claude-login"]:
+                ApplicationConfiguration.Initialize();
+                Application.Run(new ClaudeLoginForm());
+                return;
+
             case ["--preview-icons", var path]:
                 DocAssets.PreviewIcons(path);
                 return;
