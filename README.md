@@ -24,7 +24,7 @@ A tiny native Windows tray app. One glance at the icon tells you if you're burni
 - **Pace, not just percentage.** A white tick marks where you'd be with perfectly even usage. Past the tick means you're going too fast.
 - **Codex + Claude in one place.** Weekly and 5-hour windows, model-specific limits, Codex credits and free resets.
 - **Memory too.** RAM and commit charge under the limits. Click them for the apps that use the most memory, with Claude Code sessions by name. Open a session in the Claude desktop app, or end an app, from there.
-- **Your sessions at a glance.** Click *Claude* or *Codex* for a side panel with every running session: what it waits for, how much memory (and optionally CPU and GPU) it uses, and a stop button once it has been idle for a while.
+- **Your sessions at a glance.** Click *Claude* or *Codex* for a side panel with every running session: what it waits for, how much memory (and optionally CPU and GPU) it uses, and a stop button once it has been idle for a while. A Claude session started by another one sits under it, as in the Claude sidebar.
 - **Only what you want.** The ⚙ in the footer turns sections on or off, and adds CPU and GPU load.
 - **No extra logins.** Uses the sign-ins of the official Codex and Claude Code CLIs. No API keys.
 - **Lightweight.** Native WinForms, no dependencies, no telemetry. Refreshes every 2 minutes (Claude at most every 5).
@@ -104,7 +104,7 @@ The UI is in English, or Dutch when Windows is set to Dutch. Force a language wi
 |---|---|---|
 | **Codex** | The official `codex app-server` (`account/rateLimits/read`), run locally | Live, using Codex's own login. Also shows credits and available free resets. If the CLI isn't on your `PATH`, it falls back to the last snapshot in `~/.codex/sessions` (labeled *as of 14:50*). |
 | **Claude** | `api.anthropic.com/api/oauth/usage`, using the Claude Code CLI login in `~/.claude/.credentials.json` | Same data as `/usage` in Claude Code. Expired access tokens are refreshed and written back atomically, so the CLI keeps working. The endpoint is rate limited, so it's polled at most every 5 minutes; on a 429 UsageTray backs off (up to 30 min) and keeps showing the last numbers (labeled *as of 14:50*). |
-| **Sessions** | `~/.claude/sessions/<pid>.json` for Claude Code (status: working, waiting, idle); for Codex, the `~/.codex/sessions` rollout that a running `codex` process holds open (found with the Restart Manager) | Codex writes no "waiting for you" state to disk, so a Codex session shows working or idle. |
+| **Sessions** | `~/.claude/sessions/<pid>.json` for Claude Code (status: working, waiting, idle); for Codex, the `~/.codex/sessions` rollout that a running `codex` process holds open (found with the Restart Manager) | Codex writes no "waiting for you" state to disk, so a Codex session shows working or idle. A Claude session sits under the session whose process started it, or for the desktop app, the one named in the app's record (`%APPDATA%\Claude\claude-code-sessions`). If that parent isn't running, it stays at the top level; sessions from separate terminals are unrelated, so they stay side by side. |
 | **System** | `GlobalMemoryStatusEx`, and the process list for the memory view | Apps are sorted by commit (private bytes): idle apps are paged out, so their working set looks small. Claude Code session names come from `~/.claude/sessions/<pid>.json`, the file Claude Code keeps per running session. |
 
 A provider that isn't installed is simply hidden.
@@ -112,7 +112,7 @@ A provider that isn't installed is simply hidden.
 ### Privacy & security
 
 - **Runs** `codex app-server` locally for a second on each refresh; Codex handles its own auth and network.
-- **Reads** the Claude Code credentials file, and your Codex session logs as a fallback. When you open the memory view or the sessions panel, it also reads the process list with command lines and `~/.claude/sessions`. The Codex sessions panel also reads recent `~/.codex/sessions` rollouts and `~/.codex/session_index.jsonl`.
+- **Reads** the Claude Code credentials file, and your Codex session logs as a fallback. When you open the memory view or the sessions panel, it also reads the process list with command lines, `~/.claude/sessions` and, if you use the Claude desktop app, its session records. The Codex sessions panel also reads recent `~/.codex/sessions` rollouts and `~/.codex/session_index.jsonl`.
 - **Ends** a process only when you pick *End* in the memory view and confirm, or *stop* in the sessions panel (a session in a terminal asks first; a Claude desktop session keeps its conversation and resumes on your next message). System processes, and processes it has no rights to end, are greyed out.
 - **Writes** only refreshed Claude tokens back to that same credentials file, its own settings (`HKCU\Software\UsageTray`), plus the optional autostart entry (`HKCU\…\Run`).
 - **Talks to** `platform.claude.com` (token refresh) and `api.anthropic.com` (usage) itself. Nothing else. No telemetry, no analytics.
@@ -155,7 +155,7 @@ Tag a commit `v*` to build and publish a release automatically.
 | `Flyout.cs` | Window base shared by both flyouts |
 | `SystemSource.cs` | RAM and commit charge |
 | `ProcessSource.cs` | Process snapshot, grouping per app, ending processes |
-| `ClaudeSessions.cs` | Claude Code session names from `~/.claude/sessions` |
+| `ClaudeSessions.cs` | Claude Code session names from `~/.claude/sessions`, parents from the desktop app's records |
 | `CodexSource.cs` | Codex via `codex app-server`, with session-log fallback |
 | `ClaudeSource.cs` | OAuth token refresh + usage endpoint |
 | `Models.cs` | Usage windows, pace math, formatting |
@@ -169,7 +169,7 @@ Tag a commit `v*` to build and publish a release automatically.
 ## Caveats
 
 - The Claude usage endpoint is **undocumented** and may change without notice. If Claude stops showing up after an update, that's the likely cause.
-- `~/.claude/sessions` and the `claude://` link that opens a session are **undocumented** too. If they change, sessions show without a name or link; the rest of the memory view keeps working.
+- `~/.claude/sessions`, the desktop app's session records and the `claude://` link that opens a session are **undocumented** too. If they change, sessions show without a name, link or parent; the rest of the memory view keeps working.
 - `codex app-server` is marked *experimental* by the Codex CLI. If it changes, UsageTray falls back to the session logs until it's updated.
 - UsageTray reuses the Claude Code CLI login rather than logging in itself. The Claude desktop app keeps its own login, which UsageTray can't access.
 - UsageTray is an independent project and is **not affiliated with or endorsed by OpenAI or Anthropic**. Codex and Claude are trademarks of their respective owners.

@@ -13,8 +13,9 @@ enum SessionState { NeedsYou, Working, Idle, Unknown } // in list order
 /// <param name="Cpu">Percent of the whole machine; null until there is a previous reading.</param>
 /// <param name="Gpu">Percent of the busiest GPU engine; null when GPU use is not measured.</param>
 /// <param name="CanStop">Ending it loses nothing the agent cannot resume.</param>
+/// <param name="Depth">How many running sessions it sits under; 0 when nothing running started it.</param>
 sealed record AgentSession(string Title, string? Detail, SessionState State, string StateText, DateTimeOffset? Since,
-    long Commit, double? Cpu, double? Gpu, ProcGroup Group, bool CanStop);
+    long Commit, double? Cpu, double? Gpu, ProcGroup Group, bool CanStop, int Depth = 0);
 
 /// <summary>
 /// Running agent sessions per provider, with memory, CPU and GPU of each session's process tree.
@@ -37,11 +38,52 @@ static class SessionSource
         var holders = agent == "Codex" && groups.Count > 0
             ? RolloutHolders(groups.Min(g => g.Members[0].Started)?.AddMinutes(-1) ?? DateTime.Now.AddDays(-7))
             : [];
-        return groups
+        return AsTree(groups
             .Select(g => (agent == "Codex" ? Codex(g, holders) : Claude(g)) with { Cpu = cpu.GetValueOrDefault(g.RootPid), Gpu = Gpu(g) })
-            .OrderBy(s => s.State)
-            .ThenBy(s => s.Title, StringComparer.CurrentCultureIgnoreCase) // stable between refreshes; memory moves too much
-            .ToList();
+            .ToList());
+    }
+
+    /// <summary>
+    /// The list order: each session directly above the sessions it started. A session whose parent
+    /// is not running stays at the top level. A family sorts by its most urgent member.
+    /// </summary>
+    static IReadOnlyList<AgentSession> AsTree(IReadOnlyList<AgentSession> sessions)
+    {
+        var byPid = sessions.ToDictionary(s => s.Group.RootPid);
+        var byLocalId = sessions.Where(s => s.Group.Session?.LocalId is not null)
+            .GroupBy(s => s.Group.Session!.LocalId!)
+            .ToDictionary(same => same.Key, same => same.First());
+
+        var parents = new Dictionary<int, AgentSession>();
+        foreach (var s in sessions)
+        {
+            var parent = s.Group.ParentSession is { } pid && byPid.TryGetValue(pid, out var running) ? running
+                : s.Group.Session?.ParentId is { } id && byLocalId.TryGetValue(id, out var linked) ? linked
+                : null;
+            // The app's records are undocumented: never follow a link that leads back to this session.
+            var ancestor = parent;
+            while (ancestor is not null && ancestor != s) ancestor = parents.GetValueOrDefault(ancestor.Group.RootPid);
+            if (parent is not null && ancestor is null) parents[s.Group.RootPid] = parent;
+        }
+        var children = sessions.Where(s => parents.ContainsKey(s.Group.RootPid)).ToLookup(s => parents[s.Group.RootPid].Group.RootPid);
+
+        SessionState Urgency(AgentSession s) => children[s.Group.RootPid].Select(Urgency).Append(s.State).Min();
+        IEnumerable<AgentSession> Sorted(IEnumerable<AgentSession> list) => list
+            .OrderBy(Urgency)
+            .ThenBy(s => s.Title, StringComparer.CurrentCultureIgnoreCase); // stable between refreshes; memory moves too much
+
+        // Stopping a session ends what runs inside it, as ending its process tree would.
+        IEnumerable<ProcRow> Inside(AgentSession s) => s.Group.Members.Concat(
+            children[s.Group.RootPid].Where(c => c.Group.ParentSession == s.Group.RootPid).SelectMany(Inside));
+
+        var tree = new List<AgentSession>();
+        void Add(AgentSession s, int depth)
+        {
+            tree.Add(s with { Depth = depth, Group = s.Group with { Members = Inside(s).ToList() } });
+            foreach (var child in Sorted(children[s.Group.RootPid])) Add(child, depth + 1);
+        }
+        foreach (var root in Sorted(sessions.Where(s => !parents.ContainsKey(s.Group.RootPid)))) Add(root, 0);
+        return tree;
     }
 
     static AgentSession Claude(ProcGroup g)

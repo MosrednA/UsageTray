@@ -31,9 +31,11 @@ build.
 - Public repository with outside contributors: keep personal details, local paths and personal
   tools out of code, docs and commits. Personal additions (such as the bridge) belong in
   Agentwachter, which reuses this app's look so the two can merge later.
-- The Claude usage endpoint, `~/.claude/sessions` and `codex app-server` are undocumented or
-  experimental. Keep the fallbacks: the last snapshot, back-off on 429, and at most one Claude poll
-  per five minutes.
+- The Claude usage endpoint, `~/.claude/sessions`, the desktop app's session records and
+  `codex app-server` are undocumented or experimental. Keep the fallbacks: the last snapshot, back-off
+  on 429, at most one Claude poll per five minutes, and a flat session list when no parent is known.
+- CLI sessions have no parent field. Nesting there comes from process ancestry, so only a session
+  started from inside another one nests; the desktop app's link is `spawnedFrom.sessionId`.
 - `claude auth login` puts a console in raw mode (no echo, no console Ctrl+V), so a pasted code looks
   lost and a stray Ctrl+V reports "Invalid code". That is why `ClaudeLoginForm` runs it with pipes:
   it writes the code to stdin as one line and needs only the exit code and stderr.

@@ -298,15 +298,17 @@ sealed class SessionForm : Flyout
         else
         {
             var largest = Math.Max(1, _sessions.Max(s => s.Commit));
-            foreach (var s in _sessions.Skip(_scroll).Take(_pageRows))
+            for (var i = _scroll; i < _sessions.Count && i - _scroll < _pageRows; i++)
             {
+                var s = _sessions[i];
                 var row = new Rectangle(0, y, Width, Px(RowH));
                 var stop = OffersStop(s) ? new Rectangle(stopX + Px(6), y + Px(4), Px(StopW - 6), Px(18)) : Rectangle.Empty;
                 if (_rows.Count == _hover)
                     using (var hover = new SolidBrush(Color.FromArgb(0x24, 0x26, 0x2D)))
                         g.FillRectangle(hover, row);
                 _rows.Add((row, stop, s));
-                DrawSession(g, s, stop, left, y, barX, memX, cpu ? cpuX : -1, gpu ? gpuX : -1, largest, text, small, mono, monoBold);
+                DrawBranches(g, _sessions, i, left, y);
+                DrawSession(g, s, stop, left + s.Depth * Px(DotW), y, barX, memX, cpu ? cpuX : -1, gpu ? gpuX : -1, largest, text, small, mono, monoBold);
                 y += Px(RowH);
             }
         }
@@ -322,6 +324,47 @@ sealed class SessionForm : Flyout
             ? L.T($"stop after {Fmt.Span(Settings.StopAfter)} idle · right-click = menu", $"stop na {Fmt.Span(Settings.StopAfter)} stil · rechtsklik = menu")
             : L.T("right-click = menu", "rechtsklik = menu");
         Label(g, hint, small, Theme.Muted, footer, right: true);
+    }
+
+    /// <summary>The lines that tie a row to its parent and to its siblings, as in the Claude sidebar.</summary>
+    void DrawBranches(Graphics g, IReadOnlyList<AgentSession> all, int i, int left, int y)
+    {
+        int depth = all[i].Depth, mid = y + Px(12), bottom = y + Px(RowH), radius = Px(5);
+        int X(int level) => left + Px(4) + (level - 1) * Px(DotW); // under the dot of the row one level up
+        using var pen = new Pen(Color.FromArgb(0x55, 0x58, 0x63), Math.Max(1, Px(1)));
+
+        for (var level = 1; level < depth; level++)
+            if (HasSiblingBelow(all, i, level)) g.DrawLine(pen, X(level), y, X(level), bottom);
+
+        if (depth > 0)
+        {
+            int x = X(depth), end = left + depth * Px(DotW) - Px(3);
+            if (HasSiblingBelow(all, i, depth))
+            {
+                g.DrawLine(pen, x, y, x, bottom);
+                g.DrawLine(pen, x, mid, end, mid);
+            }
+            else
+            {
+                g.DrawLine(pen, x, y, x, mid - radius);
+                g.DrawArc(pen, x, mid - 2 * radius, 2 * radius, 2 * radius, 180, -90);
+                g.DrawLine(pen, x + radius, mid, end, mid);
+            }
+        }
+
+        if (i + 1 < all.Count && all[i + 1].Depth > depth)
+            g.DrawLine(pen, X(depth + 1), mid + Px(7), X(depth + 1), bottom);
+    }
+
+    /// <summary>Another row at <paramref name="level"/> follows before the list leaves that branch.</summary>
+    static bool HasSiblingBelow(IReadOnlyList<AgentSession> all, int i, int level)
+    {
+        for (var j = i + 1; j < all.Count; j++)
+        {
+            if (all[j].Depth < level) return false;
+            if (all[j].Depth == level) return true;
+        }
+        return false;
     }
 
     void DrawSession(Graphics g, AgentSession s, Rectangle stop, int left, int y, int barX, int memX, int cpuX, int gpuX, long largest,

@@ -46,7 +46,7 @@ static class DocAssets
         new("commit", 58, TimeSpan.Zero, null, "37/64G"),
     ], Note: L.T("click for processes", "klik voor processen"));
 
-    // One session per status; the long-idle one shows the stop button.
+    // One session per status, one started by another; the long-idle one shows the stop button.
     static AgentSession[] DemoSessions()
     {
         AgentSession Session(string title, string project, SessionState state, string status, double minutes, double gb) =>
@@ -56,7 +56,7 @@ static class DocAssets
         [
             Session(L.T("Fix login redirect", "Login-redirect fixen"), "webapp", SessionState.NeedsYou, L.T("question", "vraag"), 1, 0.9),
             Session(L.T("Add CSV export", "CSV-export toevoegen"), "api", SessionState.Working, L.T("working", "bezig"), 3, 1.6),
-            Session(L.T("Review open PRs", "Open PR's reviewen"), "webapp", SessionState.Idle, L.T("idle 12m", "stil 12m"), 12, 0.7),
+            Session(L.T("Write export tests", "Export-tests schrijven"), "api", SessionState.Idle, L.T("idle 12m", "stil 12m"), 12, 0.7) with { Depth = 1 },
             Session(L.T("Update dependencies", "Dependencies bijwerken"), "docs", SessionState.Idle, L.T("idle 2h 05m", "stil 2h 05m"), 125, 1.1),
         ];
     }

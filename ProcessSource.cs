@@ -18,8 +18,9 @@ sealed record ProcRow(int Pid, DateTime? Started, string Name, string Detail, lo
 /// <param name="Sessions">Agent sessions this app started. They have their own rows, but can end with it.</param>
 /// <param name="Agent">"Claude" or "Codex" when the app is an agent session.</param>
 /// <param name="Host">For a Codex server (app-server, exec-server, …), the app that started it.</param>
+/// <param name="ParentSession">Root pid of the agent session this one runs inside, if any.</param>
 sealed record ProcGroup(string Title, string Detail, long Commit, IReadOnlyList<ProcRow> Members, string? Link = null, int Sessions = 0,
-    string? Agent = null, ClaudeSession? Session = null, string? CommandLine = null, string? Host = null)
+    string? Agent = null, ClaudeSession? Session = null, string? CommandLine = null, string? Host = null, int? ParentSession = null)
 {
     public int RootPid => Members[0].Pid;
     public bool Protected => Members[0].Protected;
@@ -58,6 +59,8 @@ static class ProcessSource
         bool OwnGroup(Proc p)
         {
             if (!IsSession(p)) return false;
+            // The memory view keeps it with its parent; the sessions panel lists it as a child.
+            if (agent == "Claude" && sessions.ContainsKey(p.Pid)) return true;
             var guard = 0;
             for (var a = Parent(p); a is not null && guard++ < 64; a = Parent(a))
                 if (IsSession(a)) return false;
@@ -96,15 +99,23 @@ static class ProcessSource
             if (Parent(r) is { } parent && !Launchers.Contains(parent.Name) && groupOf.TryGetValue(parent.Pid, out var group))
                 launched[group] = launched.GetValueOrDefault(group) + 1;
 
+        int? ParentSession(Proc p)
+        {
+            var guard = 0;
+            for (var a = Parent(p); a is not null && guard++ < 64; a = Parent(a))
+                if (IsSession(a) && groupOf.GetValueOrDefault(a.Pid) == a.Pid) return a.Pid;
+            return null;
+        }
+
         return trees
             .Where(t => agent is null || IsSession(t[0]) && AgentOf(t[0]) == agent)
             .OrderByDescending(t => t.Sum(p => p.Commit))
             .Take(agent is null ? top : int.MaxValue)
-            .Select(t => Build(t, IsSession(t[0]), sessions.GetValueOrDefault(t[0].Pid), launched.GetValueOrDefault(t[0].Pid), Parent(t[0])))
+            .Select(t => Build(t, IsSession(t[0]), sessions.GetValueOrDefault(t[0].Pid), launched.GetValueOrDefault(t[0].Pid), Parent(t[0]), ParentSession(t[0])))
             .ToList();
     }
 
-    static ProcGroup Build(List<Proc> all, bool isSession, ClaudeSession? s, int launched, Proc? parent)
+    static ProcGroup Build(List<Proc> all, bool isSession, ClaudeSession? s, int launched, Proc? parent, int? parentSession)
     {
         var root = all[0];
         var browser = Browsers.Contains(root.Name);
@@ -133,7 +144,7 @@ static class ProcessSource
         else detail = WindowTitle(root.Pid);
 
         return new(title, Fmt.Join(detail, all.Count > 1 ? $"{all.Count} proc" : null) ?? "", all.Sum(p => p.Commit), members, link, launched,
-            isSession ? AgentOf(root) : null, s, root.CommandLine, host);
+            isSession ? AgentOf(root) : null, s, root.CommandLine, host, parentSession);
     }
 
     /// <summary>Ends the given processes; skips protected ones and PIDs that were reused since the snapshot.</summary>
