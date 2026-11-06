@@ -75,7 +75,7 @@ Pick a style via right-click → **Icon**. All three follow the same colors and 
 
 By default the icon shows whichever window is most at risk, so it can switch between 5-hour and weekly. To keep it on one, pick right-click → **Icon shows** → *5-hour window* or *Weekly window* (weekly includes the model-specific weekly limits).
 
-Hover the icon for a one-line summary of everything.
+Hover the icon for a summary of every window, plus RAM.
 
 > **Tip:** a 5-hour window only starts when you send your first message, so early on you'll almost always be "ahead of pace". For 5h, watch the percentage; for 7d, the pace is what matters.
 
@@ -114,7 +114,7 @@ A provider that isn't installed is simply hidden.
 - **Runs** `codex app-server` locally for a second on each refresh; Codex handles its own auth and network.
 - **Reads** the Claude Code credentials file, and your Codex session logs as a fallback. When you open the memory view or the sessions panel, it also reads the process list with command lines and `~/.claude/sessions`. The Codex sessions panel also reads recent `~/.codex/sessions` rollouts and `~/.codex/session_index.jsonl`.
 - **Ends** a process only when you pick *End* in the memory view and confirm, or *stop* in the sessions panel (a session in a terminal asks first; a Claude desktop session keeps its conversation and resumes on your next message). System processes, and processes it has no rights to end, are greyed out.
-- **Writes** only refreshed Claude tokens back to that same credentials file, plus the optional autostart entry (`HKCU\…\Run`).
+- **Writes** only refreshed Claude tokens back to that same credentials file, its own settings (`HKCU\Software\UsageTray`), plus the optional autostart entry (`HKCU\…\Run`).
 - **Talks to** `platform.claude.com` (token refresh) and `api.anthropic.com` (usage) itself. Nothing else. No telemetry, no analytics.
 
 ## Build from source
@@ -135,6 +135,7 @@ dotnet run -c Release
 | `UsageTray --procs out.png` | Render the memory view with your live data to a PNG |
 | `UsageTray --procs` | Open only the memory view, at the cursor |
 | `UsageTray --sessions Claude out.png` | Render the sessions panel (`Claude` or `Codex`) with your live data to a PNG |
+| `UsageTray --claude-login` | Open only the Claude sign-in window |
 
 Tag a commit `v*` to build and publish a release automatically.
 
@@ -143,7 +144,9 @@ Tag a commit `v*` to build and publish a release automatically.
 
 | File | Role |
 |---|---|
-| `TrayApp.cs` | Tray icon, menu, refresh timer, sign-in, autostart |
+| `Program.cs` | Entry point and the command-line options above |
+| `TrayApp.cs` | Tray icon, menu, refresh timer, sign-in, settings, autostart |
+| `ClaudeLoginForm.cs` | The Claude sign-in window around `claude auth login` |
 | `PopupForm.cs` | The flyout — custom-drawn, DPI-aware |
 | `ProcessForm.cs` | The memory view — apps by memory, open a session, end a process |
 | `SessionForm.cs` | The sessions panel — status, memory, CPU/GPU and stop per session |
@@ -157,6 +160,7 @@ Tag a commit `v*` to build and publish a release automatically.
 | `ClaudeSource.cs` | OAuth token refresh + usage endpoint |
 | `Models.cs` | Usage windows, pace math, formatting |
 | `IconRenderer.cs` | Tray icon styles and logo |
+| `Theme.cs` | Colors and shared drawing helpers |
 | `DocAssets.cs` | README images and `.ico` generator |
 | `L.cs` | English / Dutch strings |
 
