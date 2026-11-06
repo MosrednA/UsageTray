@@ -204,8 +204,8 @@ sealed class ProcessForm : Flyout
                 $"{what} beëindigen?\n\n{rows.Count} proces(sen), {size}. Niet-opgeslagen werk gaat verloren.");
             if (sessions > 0)
                 ask += "\n" + L.T(
-                    $"{sessions} Claude Code session(s) started from it can end too.",
-                    $"{sessions} Claude Code-sessie(s) die het startte kunnen ook stoppen.");
+                    $"{sessions} Claude Code or Codex session(s) started from it can end too.",
+                    $"{sessions} Claude Code- of Codex-sessie(s) die het startte kunnen ook stoppen.");
             if (MessageBox.Show(this, ask, "UsageTray", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
                 return;
             if (ProcessSource.End(rows) is var failed and > 0)
@@ -236,7 +236,7 @@ sealed class ProcessForm : Flyout
         var rows = _groups is null ? 1 : Page.Sum(g => 1 + (IsOpen(g) ? Largest(g).Count() : 0));
         Size = new Size(Px(W), Px(Pad + HeadH + rows * RowH + 4 + FootH + 4));
 
-        var area = Screen.FromPoint(_anchor).WorkingArea;
+        var area = AvailableArea(Screen.FromPoint(_anchor));
         var margin = Px(10);
         var top = keepTop ? Math.Min(Top, area.Bottom - margin - Height) : Math.Min(_anchor.Y, area.Bottom - margin) - Height;
         Location = new Point(
