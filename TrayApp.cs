@@ -6,11 +6,13 @@ namespace UsageTray;
 sealed class TrayApp : ApplicationContext
 {
     static readonly TimeSpan RefreshEvery = TimeSpan.FromMinutes(2);
+    static readonly TimeSpan RamEvery = TimeSpan.FromSeconds(15);
 
     readonly PopupForm _popup = new(); // created first: installs the WinForms sync context for awaits
     readonly ProcessForm _procs = new();
     readonly NotifyIcon _tray = new();
     readonly System.Windows.Forms.Timer _timer = new() { Interval = (int)RefreshEvery.TotalMilliseconds };
+    readonly System.Windows.Forms.Timer _ramTimer = new() { Interval = (int)RamEvery.TotalMilliseconds };
     readonly ToolStripMenuItem _codexLogin, _claudeLogin;
     ClaudeLoginForm? _claudeLoginForm;
     Bitmap? _check;
@@ -31,7 +33,7 @@ sealed class TrayApp : ApplicationContext
         foreach (var (style, name) in new[]
         {
             (IconStyle.Ring, L.T("Ring", "Ring")),
-            (IconStyle.Bars, L.T("Bars (Codex | Claude)", "Balkjes (Codex | Claude)")),
+            (IconStyle.Bars, L.T("Bars (Codex | Claude | RAM)", "Balkjes (Codex | Claude | RAM)")),
             (IconStyle.Classic, L.T("Classic", "Klassiek")),
         })
         {
@@ -76,6 +78,9 @@ sealed class TrayApp : ApplicationContext
         _popup.SystemClicked += () => _procs.ShowNear(_popup.Bounds);
         _timer.Tick += (_, _) => _ = RefreshAsync();
         _timer.Start();
+        // RAM moves faster than the limits: keep the bars icon and the tooltip current.
+        _ramTimer.Tick += (_, _) => UpdateTray();
+        _ramTimer.Start();
         _ = RefreshAsync();
     }
 
@@ -153,12 +158,15 @@ sealed class TrayApp : ApplicationContext
     void UpdateTray()
     {
         var old = _tray.Icon;
-        _tray.Icon = IconRenderer.Render(Settings.IconStyle, _data);
+        var ram = SystemSource.Read().Windows.FirstOrDefault(w => w.Label == "ram");
+        _tray.Icon = IconRenderer.Render(Settings.IconStyle, _data, ram);
         old?.Dispose();
 
-        var tip = string.Join("\n", _data.Select(p => p.Error is not null
+        var lines = _data.Select(p => p.Error is not null
             ? $"{p.Name}: {p.Error}"
-            : $"{p.Name}  " + string.Join("  ", p.Windows.Select(w => $"{w.Label} {w.UsedPct:0}% ({Fmt.Delta(w.Delta)})"))));
+            : $"{p.Name}  " + string.Join("  ", p.Windows.Select(w => $"{w.Label} {w.UsedPct:0}% ({Fmt.Delta(w.Delta)})"))).ToList();
+        if (ram is not null) lines.Add($"RAM  {ram.UsedPct:0}% ({ram.Detail})");
+        var tip = string.Join("\n", lines);
         if (tip.Length == 0) tip = "UsageTray";
         _tray.Text = tip.Length > 127 ? tip[..127] : tip;
     }
