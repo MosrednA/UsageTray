@@ -91,7 +91,7 @@ static class DocAssets
             g.FillPath(brush, bg);
         for (var i = 0; i < IconStates.Length; i++)
         {
-            using var icon = IconRenderer.Draw(style, IconStates[i], size, light: false, IconRam[i]);
+            using var icon = IconRenderer.Draw(style, IconWindow.Auto, IconStates[i], size, light: false, IconRam[i]);
             g.DrawImage(icon, pad + i * (size + gap), pad);
         }
         return strip;
@@ -121,7 +121,7 @@ static class DocAssets
                 foreach (var style in styles)
                     for (var i = 0; i < IconStates.Length; i++)
                     {
-                        using var icon = IconRenderer.Draw(style, IconStates[i], size, light, IconRam[i]);
+                        using var icon = IconRenderer.Draw(style, IconWindow.Auto, IconStates[i], size, light, IconRam[i]);
                         g.DrawImage(icon, col * Cell + 8, row * Cell + 8, size * Zoom, size * Zoom);
                         col++;
                     }

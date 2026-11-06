@@ -50,6 +50,24 @@ sealed class TrayApp : ApplicationContext
             iconMenu.DropDownItems.Add(item);
         }
 
+        var showsMenu = new ToolStripMenuItem(L.T("Icon shows", "Pictogram toont"));
+        foreach (var (window, name) in new[]
+        {
+            (IconWindow.Auto, L.T("Most at risk", "Meeste risico")),
+            (IconWindow.FiveHour, L.T("5-hour window", "5-uursvenster")),
+            (IconWindow.Weekly, L.T("Weekly window", "Weekvenster")),
+        })
+        {
+            var item = new ToolStripMenuItem(name) { Checked = window == Settings.IconWindow };
+            item.Click += (_, _) =>
+            {
+                Settings.IconWindow = window;
+                foreach (ToolStripMenuItem other in showsMenu.DropDownItems) other.Checked = other == item;
+                UpdateTray();
+            };
+            showsMenu.DropDownItems.Add(item);
+        }
+
         _codexLogin = new ToolStripMenuItem(L.T("Sign in to Codex…", "Inloggen bij Codex…"), null, (_, _) => _ = LoginAsync("Codex"));
         _claudeLogin = new ToolStripMenuItem(L.T("Sign in to Claude…", "Inloggen bij Claude…"), null, (_, _) => _ = LoginAsync("Claude"));
 
@@ -62,6 +80,7 @@ sealed class TrayApp : ApplicationContext
                 _claudeLogin,
                 new ToolStripSeparator(),
                 iconMenu,
+                showsMenu,
                 autostart,
                 new ToolStripSeparator(),
                 new ToolStripMenuItem(L.T("Quit", "Afsluiten"), null, (_, _) => ExitThread()),
@@ -69,7 +88,7 @@ sealed class TrayApp : ApplicationContext
         };
         // Green check on the sign-in items whose provider is signed in; drawn per DPI when the menu opens.
         _tray.ContextMenuStrip.Opening += (_, _) => UpdateLoginItems();
-        _tray.Icon = IconRenderer.Render(Settings.IconStyle, []);
+        _tray.Icon = IconRenderer.Render(Settings.IconStyle, Settings.IconWindow, []);
         // Light/dark taskbar switch: redraw with matching ink.
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
         _tray.Text = "UsageTray";
@@ -229,7 +248,7 @@ sealed class TrayApp : ApplicationContext
         var old = _tray.Icon;
         var shown = Shown;
         var ram = SystemSource.Ram();
-        _tray.Icon = IconRenderer.Render(Settings.IconStyle, shown, ram);
+        _tray.Icon = IconRenderer.Render(Settings.IconStyle, Settings.IconWindow, shown, ram);
         old?.Dispose();
 
         var lines = shown.Select(p => p.Error is not null
@@ -292,6 +311,20 @@ static class Settings
         {
             using var key = Registry.CurrentUser.CreateSubKey(Key);
             key.SetValue("IconStyle", value.ToString());
+        }
+    }
+
+    public static IconWindow IconWindow
+    {
+        get
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(Key);
+            return Enum.TryParse<IconWindow>(key?.GetValue("IconWindow") as string, out var window) ? window : IconWindow.Auto;
+        }
+        set
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(Key);
+            key.SetValue("IconWindow", value.ToString());
         }
     }
 

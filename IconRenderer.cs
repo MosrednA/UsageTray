@@ -7,26 +7,35 @@ namespace UsageTray;
 
 enum IconStyle { Ring, Bars, Classic }
 
+/// <summary>Which windows the icon may show: any (most at risk), or only 5-hour or weekly ones.</summary>
+enum IconWindow { Auto, FiveHour, Weekly }
+
 static class IconRenderer
 {
-    public static Icon Render(IconStyle style, IReadOnlyList<ProviderStatus> data, UsageWindow? ram = null)
+    public static Icon Render(IconStyle style, IconWindow window, IReadOnlyList<ProviderStatus> data, UsageWindow? ram = null)
     {
-        using var bmp = Draw(style, data, Math.Max(16, SystemInformation.SmallIconSize.Width), LightTaskbar(), ram);
+        using var bmp = Draw(style, window, data, Math.Max(16, SystemInformation.SmallIconSize.Width), LightTaskbar(), ram);
         var handle = bmp.GetHicon();
         try { return (Icon)Icon.FromHandle(handle).Clone(); }
         finally { DestroyIcon(handle); }
     }
 
-    public static Bitmap Draw(IconStyle style, IReadOnlyList<ProviderStatus> data, int size, bool light, UsageWindow? ram = null) => style switch
+    public static Bitmap Draw(IconStyle style, IconWindow window, IReadOnlyList<ProviderStatus> data, int size, bool light, UsageWindow? ram = null) => style switch
     {
-        IconStyle.Bars => Bars(data, ram, size, light),
-        IconStyle.Classic => Classic(Focus(data.SelectMany(p => p.Windows)), size),
-        _ => Ring(Focus(data.SelectMany(p => p.Windows)), size, light),
+        IconStyle.Bars => Bars(data, window, ram, size, light),
+        IconStyle.Classic => Classic(Focus(data.SelectMany(p => p.Windows), window), size),
+        _ => Ring(Focus(data.SelectMany(p => p.Windows), window), size, light),
     };
 
-    /// <summary>The window most at risk: worst status first, then highest usage.</summary>
-    public static UsageWindow? Focus(IEnumerable<UsageWindow> windows) =>
-        windows.OrderByDescending(w => w.Level).ThenByDescending(w => w.UsedPct).FirstOrDefault();
+    /// <summary>The window most at risk among those allowed: worst status first, then highest usage.</summary>
+    public static UsageWindow? Focus(IEnumerable<UsageWindow> windows, IconWindow which) =>
+        windows.Where(w => which switch
+            {
+                IconWindow.FiveHour => w.Length > TimeSpan.Zero && w.Length < TimeSpan.FromDays(1),
+                IconWindow.Weekly => w.Length >= TimeSpan.FromDays(1),
+                _ => true,
+            })
+            .OrderByDescending(w => w.Level).ThenByDescending(w => w.UsedPct).FirstOrDefault();
 
     public static bool LightTaskbar()
     {
@@ -78,7 +87,7 @@ static class IconRenderer
     }
 
     /// <summary>One vertical bar per provider (Codex | Claude), each with a pace tick, then RAM.</summary>
-    static Bitmap Bars(IReadOnlyList<ProviderStatus> data, UsageWindow? ram, int s, bool light)
+    static Bitmap Bars(IReadOnlyList<ProviderStatus> data, IconWindow window, UsageWindow? ram, int s, bool light)
     {
         var bmp = new Bitmap(s, s);
         using var g = Graphics.FromImage(bmp);
@@ -91,20 +100,20 @@ static class IconRenderer
             return bmp;
         }
 
-        var bars = data.Take(2).Select(p => Focus(p.Windows)).ToList();
+        var bars = data.Take(2).Select(p => Focus(p.Windows, window)).ToList();
         if (ram is not null) bars.Add(ram);
         var n = bars.Count;
         float barW = s * n switch { 1 => 0.46f, 2 => 0.36f, _ => 0.25f }, gap = s * (n > 2 ? 0.1f : 0.14f);
         float x = (s - (n * barW + (n - 1) * gap)) / 2, top = s * 0.04f, h = s * 0.92f;
 
-        foreach (var window in bars)
+        foreach (var shown in bars)
         {
             var bar = new RectangleF(x, top, barW, h);
             using var shape = Theme.RoundRect(bar, Math.Min(barW / 2, s * 0.14f));
             using (var track = new SolidBrush(Faint(light)))
                 g.FillPath(track, shape);
 
-            if (window is { } w)
+            if (shown is { } w)
             {
                 var state = g.Save();
                 g.SetClip(shape);
