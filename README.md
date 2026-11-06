@@ -37,7 +37,7 @@ Download **[UsageTray-win-x64.exe](https://github.com/MosrednA/UsageTray/release
 
 > **"Windows protected your PC"?** The exe isn't code-signed, so SmartScreen warns on first run. Click *More info → Run anyway*, or [build it yourself](#build-from-source).
 >
-> Prefer a ~250 KB download instead of ~50 MB? Grab `UsageTray-win-x64-small.exe` from the [release](https://github.com/MosrednA/UsageTray/releases/latest) instead — it needs the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0).
+> Prefer a ~350 KB download instead of ~50 MB? Grab `UsageTray-win-x64-small.exe` from the [release](https://github.com/MosrednA/UsageTray/releases/latest) instead — it needs the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0).
 
 Then:
 
