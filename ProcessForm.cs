@@ -82,7 +82,7 @@ sealed class ProcessForm : Flyout
         var scroll = Math.Clamp(_scroll + by, 0, Math.Max(0, (_groups?.Count ?? 0) - PageRows));
         if (by != 0 && scroll == _scroll) return;
         _scroll = scroll;
-        Fit(keepTop: by != 0);
+        Relayout();
         Invalidate();
     }
 
@@ -145,7 +145,7 @@ sealed class ProcessForm : Flyout
     void Toggle(ProcGroup group)
     {
         _open = _open == group.RootPid ? null : group.RootPid;
-        Fit(keepTop: true);
+        Relayout();
         Invalidate();
     }
 
@@ -228,21 +228,17 @@ sealed class ProcessForm : Flyout
 
     IEnumerable<ProcGroup> Page => _groups!.Skip(_scroll).Take(PageRows);
 
-    protected override void Relayout() => Fit(keepTop: false);
-
-    /// <param name="keepTop">Grow downward, so the row under the cursor stays where it is.</param>
-    void Fit(bool keepTop)
+    protected override void Relayout()
     {
         var rows = _groups is null ? 1 : Page.Sum(g => 1 + (IsOpen(g) ? Largest(g).Count() : 0));
         Size = new Size(Px(W), Px(Pad + HeadH + rows * RowH + 4 + FootH + 4));
 
+        // The bottom never moves: lists open upward and the panel drops back when they close.
         var area = AvailableArea(Screen.FromPoint(_anchor));
         var margin = Px(10);
-        var top = keepTop ? Math.Min(Top, area.Bottom - margin - Height) : Math.Min(_anchor.Y, area.Bottom - margin) - Height;
         Location = new Point(
             Math.Max(area.Left + margin, Math.Min(_anchor.X, area.Right - margin) - Width),
-            Math.Max(area.Top + margin, top));
-        _anchor.Y = Bottom;
+            Math.Max(area.Top + margin, Math.Min(_anchor.Y, area.Bottom - margin) - Height));
     }
 
     protected override void OnPaint(PaintEventArgs e)
